@@ -400,21 +400,19 @@ worker :: proc(t: ^thread.Thread) {
   opts: ^Options = auto_cast context.user_ptr
   params := make(map[string]f64)
   defer delete(params)
+  min_c := max(f64)
+  max_c := min(f64)
   for i in 0 ..< width * height {
     x := i % width
     y := i / width
     params["x"] = f64(x) / f64(width) * opts.size * 2 - opts.size
     params["y"] = f64(y) / f64(height) * opts.size * 2 - opts.size
     buf_c[i] = compute_function(wd.fun, params)
-  }
-  min := buf_c[0]
-  max := min
-  for i in 1 ..< width * height {
-    if buf_c[i] < min do min = buf_c[i]
-    if buf_c[i] > max do max = buf_c[i]
+    min_c = min(min_c, buf_c[i])
+    max_c = max(max_c, buf_c[i])
   }
   for i in 0 ..< width * height {
-    wd.buf[3 * i + t.user_index] = u8((buf_c[i] - min) / (max - min) * 255)
+    wd.buf[3 * i + t.user_index] = u8((buf_c[i] - min_c) / (max_c - min_c) * 255)
   }
 }
 
