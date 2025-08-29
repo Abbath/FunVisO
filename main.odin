@@ -43,6 +43,7 @@ Fun :: struct {
 
 Cond :: enum {
   Equal,
+  NotEqual,
   Less,
   GreaterEqual,
 }
@@ -144,6 +145,8 @@ print_expr_helper :: proc(e: Expr) {
     switch v.cond {
     case .Equal:
       fmt.print(" == ")
+    case .NotEqual:
+      fmt.print(" != ")
     case .Less:
       fmt.print(" < ")
     case .GreaterEqual:
@@ -162,7 +165,7 @@ generate_function :: proc(params: []string, depth: int) -> (res: ^Expr, ok: bool
   variants := [7]int{1, 2, 3, 4, 5, 6, 7}
   short_variants := [2]int{1, 2}
   functions := [5]FunType{.Sin, .Abs, .Sqrt, .Log, .Inv}
-  conditions := [3]Cond{.Equal, .Less, .GreaterEqual}
+  conditions := [4]Cond{.Equal, .NotEqual, .Less, .GreaterEqual}
   powers := [2]int{2, 3}
   opts: ^Options = auto_cast context.user_ptr
   weights := convert_weights(opts.weights)
@@ -246,6 +249,8 @@ compute_function :: proc(fun: ^Expr, params: map[string]f64) -> (res: f64) {
     switch v.cond {
     case .Equal:
       cond = val1 == val2
+    case .NotEqual:
+      cond = val1 != val2
     case .Less:
       cond = val1 < val2
     case .GreaterEqual:
@@ -270,6 +275,7 @@ Options :: struct {
   single:   bool `args:"name=l" usage:"Single function"`,
   depth:    int `args:"name=d" usage:"Max function depth"`,
   weights:  string `args:"name=w" usage:"Weights"`,
+  step:     f64 `args:"name=t" usage:"Time step"`,
 }
 
 convert_weights :: proc(ws: string) -> (res: [7]f64) {
@@ -307,21 +313,47 @@ main :: proc() {
       mem.tracking_allocator_destroy(&track)
     }
   }
-  opts := Options{"image.png", 0, 10, math.PI, 1024, 1024, false, 10, "1 1 1 1 1 1 1"}
+  opts := Options{"image.png", 0, 10, math.PI, 1024, 1024, false, 10, "1 1 1 1 1 1 1", 0}
   flags.parse_or_exit(&opts, os.args, .Unix)
   context.user_ptr = &opts
   if opts.attempts == 0 {
-    perform(-1, opts)
+    funcs := generate_functions(opts)
+    defer free_funcs(funcs)
+    perform(-1, funcs, opts)
   } else {
+    first := true
+    funcs := generate_functions(opts)
+    defer if opts.step != 0 {
+      free_funcs(funcs)
+    }
     for i in 0 ..< opts.attempts {
-      perform(i, opts)
-      fmt.println()
+      perform(i, funcs, opts)
+      if opts.step == 0 {
+        free_funcs(funcs)
+        funcs = generate_functions(opts)
+      }
+      fmt.printfln("%v/%v", i + 1, opts.attempts)
+    }
+    if opts.step == 0 {
+      free_funcs(funcs)
     }
   }
 }
 
-perform :: proc(n: int, opts: Options) {
-  gen_params := [2]string{"x", "y"}
+Funcs :: struct {
+  fun_r: ^Expr,
+  fun_g: ^Expr,
+  fun_b: ^Expr,
+}
+
+free_funcs :: proc(funcs: Funcs) {
+  free_expr(funcs.fun_r)
+  free_expr(funcs.fun_g)
+  free_expr(funcs.fun_b)
+}
+
+generate_functions :: proc(opts: Options) -> Funcs {
+  gen_params := [3]string{"x", "y", "t"}
   ok: bool
   fun_r, fun_g, fun_b: ^Expr
   for {
@@ -329,22 +361,23 @@ perform :: proc(n: int, opts: Options) {
     fun_r, ok = generate_function(gen_params[:], opts.depth)
     if ok do break
   }
-  defer free_expr(fun_r)
   for {
     if fun_g != nil do free_expr(fun_g)
     fun_g, ok = generate_function(gen_params[:], opts.depth)
     if ok do break
   }
-  defer free_expr(fun_g)
   for {
     if fun_b != nil do free_expr(fun_b)
     fun_b, ok = generate_function(gen_params[:], opts.depth)
     if ok do break
   }
-  defer free_expr(fun_b)
   print_expr(fun_r^)
   print_expr(fun_g^)
   print_expr(fun_b^)
+  return {fun_r, fun_g, fun_b}
+}
+
+perform :: proc(n: int, funcs: Funcs, opts: Options) {
   width := opts.width
   height := opts.height
 
@@ -352,9 +385,9 @@ perform :: proc(n: int, opts: Options) {
   defer delete(buf)
 
   wg: sync.Wait_Group
-  wd_r := WorkerData{&wg, buf[:], width, height, fun_r}
-  wd_g := WorkerData{&wg, buf[:], width, height, opts.single ? fun_r : fun_g}
-  wd_b := WorkerData{&wg, buf[:], width, height, opts.single ? fun_r : fun_b}
+  wd_r := WorkerData{&wg, buf[:], width, height, funcs.fun_r, f64(n) * opts.step}
+  wd_g := WorkerData{&wg, buf[:], width, height, opts.single ? funcs.fun_r : funcs.fun_g, f64(n) * opts.step}
+  wd_b := WorkerData{&wg, buf[:], width, height, opts.single ? funcs.fun_r : funcs.fun_b, f64(n) * opts.step}
 
   t_r := thread.create(worker)
   t_r.init_context = context
@@ -407,6 +440,7 @@ worker :: proc(t: ^thread.Thread) {
     y := i / width
     params["x"] = f64(x) / f64(width) * opts.size * 2 - opts.size
     params["y"] = f64(y) / f64(height) * opts.size * 2 - opts.size
+    params["t"] = wd.t
     buf_c[i] = compute_function(wd.fun, params)
     min_c = min(min_c, buf_c[i])
     max_c = max(max_c, buf_c[i])
@@ -422,4 +456,5 @@ WorkerData :: struct {
   width:     int,
   height:    int,
   fun:       ^Expr,
+  t:         f64,
 }
