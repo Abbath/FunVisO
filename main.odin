@@ -313,6 +313,7 @@ main :: proc() {
   } else {
     for i in 0 ..< opts.attempts {
       perform(i, opts)
+      fmt.println()
     }
   }
 }
