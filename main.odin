@@ -347,45 +347,14 @@ perform :: proc(n: int, opts: Options) {
   print_expr(fun_b^)
   width := opts.width
   height := opts.height
-  buf_r := make([dynamic]f64, width * height)
-  defer delete(buf_r)
-  buf_g := make([dynamic]f64, width * height)
-  defer delete(buf_g)
-  buf_b := make([dynamic]f64, width * height)
-  defer delete(buf_b)
+
   buf := make([dynamic]u8, width * height * 3)
   defer delete(buf)
-  params := make(map[string]f64)
-  defer delete(params)
-  for i in 0 ..< width * height {
-    x := i % width
-    y := i / width
-    params["x"] = f64(x) / f64(width) * opts.size * 2 - opts.size
-    params["y"] = f64(y) / f64(height) * opts.size * 2 - opts.size
-    buf_r[i] = compute_function(fun_r, params)
-    buf_g[i] = opts.single ? buf_r[i] : compute_function(fun_g, params)
-    buf_b[i] = opts.single ? buf_r[i] : compute_function(fun_b, params)
-  }
-  min_r := buf_r[0]
-  max_r := min_r
-  min_g := buf_g[0]
-  max_g := min_g
-  min_b := buf_b[0]
-  max_b := min_b
-  for i in 1 ..< width * height {
-    if buf_r[i] < min_r do min_r = buf_r[i]
-    if buf_r[i] > max_r do max_r = buf_r[i]
 
-    if buf_g[i] < min_g do min_g = buf_g[i]
-    if buf_g[i] > max_g do max_g = buf_g[i]
-
-    if buf_b[i] < min_b do min_b = buf_b[i]
-    if buf_b[i] > max_b do max_b = buf_b[i]
-  }
   wg: sync.Wait_Group
-  wd_r := WorkerData{&wg, buf[:], buf_r[:], width * height, min_r, max_r}
-  wd_g := WorkerData{&wg, buf[:], buf_g[:], width * height, min_g, max_g}
-  wd_b := WorkerData{&wg, buf[:], buf_b[:], width * height, min_b, max_b}
+  wd_r := WorkerData{&wg, buf[:], width, height, fun_r}
+  wd_g := WorkerData{&wg, buf[:], width, height, opts.single ? fun_r : fun_g}
+  wd_b := WorkerData{&wg, buf[:], width, height, opts.single ? fun_r : fun_b}
 
   t_r := thread.create(worker)
   t_r.init_context = context
@@ -424,16 +393,35 @@ perform :: proc(n: int, opts: Options) {
 worker :: proc(t: ^thread.Thread) {
   wd: ^WorkerData = auto_cast t.data
   defer sync.wait_group_done(wd.waitgroup)
-  for i in 0 ..< wd.size {
-    wd.buf[3 * i + t.user_index] = u8((wd.buf_c[i] - wd.min) / (wd.max - wd.min) * 255)
+  width := wd.width
+  height := wd.height
+  buf_c := make([dynamic]f64, width * height)
+  defer delete(buf_c)
+  opts: ^Options = auto_cast context.user_ptr
+  params := make(map[string]f64)
+  defer delete(params)
+  for i in 0 ..< width * height {
+    x := i % width
+    y := i / width
+    params["x"] = f64(x) / f64(width) * opts.size * 2 - opts.size
+    params["y"] = f64(y) / f64(height) * opts.size * 2 - opts.size
+    buf_c[i] = compute_function(wd.fun, params)
+  }
+  min := buf_c[0]
+  max := min
+  for i in 1 ..< width * height {
+    if buf_c[i] < min do min = buf_c[i]
+    if buf_c[i] > max do max = buf_c[i]
+  }
+  for i in 0 ..< width * height {
+    wd.buf[3 * i + t.user_index] = u8((buf_c[i] - min) / (max - min) * 255)
   }
 }
 
 WorkerData :: struct {
   waitgroup: ^sync.Wait_Group,
   buf:       []u8,
-  buf_c:     []f64,
-  size:      int,
-  min:       f64,
-  max:       f64,
+  width:     int,
+  height:    int,
+  fun:       ^Expr,
 }
