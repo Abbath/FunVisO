@@ -40,6 +40,7 @@ Fun :: struct {
 Cond :: enum {
   Equal,
   Less,
+  GreaterEqual,
 }
 
 If :: struct {
@@ -139,6 +140,8 @@ print_expr_helper :: proc(e: Expr) {
       fmt.print(" == ")
     case .Less:
       fmt.print(" < ")
+    case .GreaterEqual:
+      fmt.print(" >= ")
     }
     print_expr_helper(v.b^)
     fmt.print(", ")
@@ -153,7 +156,7 @@ generate_function :: proc(params: []string, depth: int, ok: ^bool) -> ^Expr {
   variants := [7]int{1, 2, 3, 4, 5, 6, 7}
   short_variants := [2]int{1, 2}
   functions := [5]FunType{.Sin, .Abs, .Sqrt, .Log, .Inv}
-  conditions := [2]Cond{.Equal, .Less}
+  conditions := [3]Cond{.Equal, .Less, .GreaterEqual}
   powers := [2]int{2, 3}
   n := rand.choice(depth > 0 ? variants[:] : short_variants[:])
   e := new(Expr)
@@ -215,6 +218,8 @@ compute_function :: proc(fun: ^Expr, params: map[string]f64) -> (res: f64) {
       cond = val1 == val2
     case .Less:
       cond = val1 < val2
+    case .GreaterEqual:
+      cond = val1 >= val2
     }
     if cond {
       res = compute_function(v.c, params)
