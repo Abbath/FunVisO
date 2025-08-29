@@ -9,6 +9,8 @@ import "core:os"
 import "core:path/filepath"
 import "core:strconv"
 import "core:strings"
+import "core:sync"
+import "core:thread"
 import "vendor:stb/image"
 
 Add :: struct {
@@ -380,11 +382,36 @@ perform :: proc(n: int, opts: Options) {
     if buf_b[i] < min_b do min_b = buf_b[i]
     if buf_b[i] > max_b do max_b = buf_b[i]
   }
-  for i in 0 ..< width * height {
-    buf[3 * i + 0] = u8((buf_r[i] - min_r) / (max_r - min_r) * 255)
-    buf[3 * i + 1] = u8((buf_g[i] - min_g) / (max_g - min_g) * 255)
-    buf[3 * i + 2] = u8((buf_b[i] - min_b) / (max_b - min_b) * 255)
-  }
+  wg: sync.Wait_Group
+  wd_r := WorkerData{&wg, buf[:], buf_r[:], width * height, min_r, max_r}
+  wd_g := WorkerData{&wg, buf[:], buf_g[:], width * height, min_g, max_g}
+  wd_b := WorkerData{&wg, buf[:], buf_b[:], width * height, min_b, max_b}
+
+  t_r := thread.create(worker)
+  t_r.init_context = context
+  t_r.user_index = 0
+  t_r.data = &wd_r
+
+  t_g := thread.create(worker)
+  t_g.init_context = context
+  t_g.user_index = 1
+  t_g.data = &wd_g
+
+  t_b := thread.create(worker)
+  t_b.init_context = context
+  t_b.user_index = 2
+  t_b.data = &wd_b
+
+  thread.start(t_r)
+  thread.start(t_g)
+  thread.start(t_b)
+
+  sync.wait_group_add(&wg, 3)
+
+  thread.destroy(t_r)
+  thread.destroy(t_g)
+  thread.destroy(t_b)
+
   fname := opts.filename
   if n >= 0 {
     dir, name := filepath.split(fname)
@@ -392,4 +419,21 @@ perform :: proc(n: int, opts: Options) {
   }
   image.write_png(fmt.ctprint(fname), auto_cast width, auto_cast height, 3, raw_data(buf), auto_cast width * 3)
   free_all(context.temp_allocator)
+}
+
+worker :: proc(t: ^thread.Thread) {
+  wd: ^WorkerData = auto_cast t.data
+  defer sync.wait_group_done(wd.waitgroup)
+  for i in 0 ..< wd.size {
+    wd.buf[3 * i + t.user_index] = u8((wd.buf_c[i] - wd.min) / (wd.max - wd.min) * 255)
+  }
+}
+
+WorkerData :: struct {
+  waitgroup: ^sync.Wait_Group,
+  buf:       []u8,
+  buf_c:     []f64,
+  size:      int,
+  min:       f64,
+  max:       f64,
 }
