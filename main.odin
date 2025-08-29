@@ -18,6 +18,8 @@ Mul :: struct {
 FunType :: enum {
   Sin,
   Abs,
+  Sqrt,
+  Log,
 }
 
 Fun :: struct {
@@ -82,6 +84,10 @@ print_expr_helper :: proc(e: Expr) {
       fmt.print("sin(")
     case .Abs:
       fmt.print("abs(")
+    case .Sqrt:
+      fmt.print("sqrt(")
+    case .Log:
+      fmt.print("log(")
     }
     print_expr_helper(v.e1^)
     fmt.print(")")
@@ -90,7 +96,7 @@ print_expr_helper :: proc(e: Expr) {
 
 generate_function :: proc(params: []string) -> ^Expr {
   variants := [5]int{1, 2, 3, 4, 5}
-  functions := [2]FunType{.Sin, .Abs}
+  functions := [4]FunType{.Sin, .Abs, .Sqrt, .Log}
   n := rand.choice(variants[:])
   e := new(Expr)
   switch n {
@@ -126,6 +132,10 @@ compute_function :: proc(fun: ^Expr, params: map[string]f64) -> (res: f64) {
     case .Sin:
       res = math.sin(val)
     case .Abs:
+      res = math.abs(val)
+    case .Sqrt:
+      res = math.abs(val)
+    case .Log:
       res = math.abs(val)
     }
   }
