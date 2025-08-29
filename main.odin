@@ -3,6 +3,7 @@ package main
 import "core:fmt"
 import "core:math"
 import "core:math/rand"
+import "core:mem"
 import "vendor:stb/image"
 
 Add :: struct {
@@ -94,10 +95,11 @@ print_expr_helper :: proc(e: Expr) {
   }
 }
 
-generate_function :: proc(params: []string) -> ^Expr {
+generate_function :: proc(params: []string, depth: int) -> ^Expr {
   variants := [5]int{1, 2, 3, 4, 5}
+  short_variants := [2]int{1, 2}
   functions := [4]FunType{.Sin, .Abs, .Sqrt, .Log}
-  n := rand.choice(variants[:])
+  n := rand.choice(depth > 0 ? variants[:] : short_variants[:])
   e := new(Expr)
   switch n {
   case 1:
@@ -107,11 +109,11 @@ generate_function :: proc(params: []string) -> ^Expr {
     e^ = rand.choice(params)
     return e
   case 3:
-    e^ = Add{generate_function(params), generate_function(params)}
+    e^ = Add{generate_function(params, depth - 1), generate_function(params, depth - 1)}
   case 4:
-    e^ = Mul{generate_function(params), generate_function(params)}
+    e^ = Mul{generate_function(params, depth - 1), generate_function(params, depth - 1)}
   case 5:
-    e^ = Fun{rand.choice(functions[:]), generate_function(params)}
+    e^ = Fun{rand.choice(functions[:]), generate_function(params, depth - 1)}
   }
   return e
 }
@@ -143,12 +145,26 @@ compute_function :: proc(fun: ^Expr, params: map[string]f64) -> (res: f64) {
 }
 
 main :: proc() {
+  when ODIN_DEBUG {
+    track: mem.Tracking_Allocator
+    mem.tracking_allocator_init(&track, context.allocator)
+    context.allocator = mem.tracking_allocator(&track)
+    defer {
+      if len(track.allocation_map) > 0 {
+        fmt.eprintf("=== %v allocations not freed: ===\n", len(track.allocation_map))
+        for _, entry in track.allocation_map {
+          fmt.eprintf("- %v bytes @ %v\n", entry.size, entry.location)
+        }
+      }
+      mem.tracking_allocator_destroy(&track)
+    }
+  }
   gen_params := [2]string{"x", "y"}
-  fun_r := generate_function(gen_params[:])
+  fun_r := generate_function(gen_params[:], 25)
   defer free_expr(fun_r)
-  fun_g := generate_function(gen_params[:])
+  fun_g := generate_function(gen_params[:], 25)
   defer free_expr(fun_g)
-  fun_b := generate_function(gen_params[:])
+  fun_b := generate_function(gen_params[:], 25)
   defer free_expr(fun_b)
   print_expr(fun_r^)
   print_expr(fun_g^)
