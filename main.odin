@@ -19,11 +19,17 @@ Mul :: struct {
   e2: ^Expr,
 }
 
+Pow :: struct {
+  pow: int,
+  e1:  ^Expr,
+}
+
 FunType :: enum {
   Sin,
   Abs,
   Sqrt,
   Log,
+  Inv,
 }
 
 Fun :: struct {
@@ -49,6 +55,7 @@ Expr :: union {
   string,
   Add,
   Mul,
+  Pow,
   Fun,
   If,
 }
@@ -66,6 +73,9 @@ free_expr :: proc(e: ^Expr) {
   case Mul:
     free_expr(v.e1)
     free_expr(v.e2)
+    free(e)
+  case Pow:
+    free_expr(v.e1)
     free(e)
   case Fun:
     free_expr(v.e1)
@@ -102,6 +112,10 @@ print_expr_helper :: proc(e: Expr) {
     fmt.print(" * ")
     print_expr_helper(v.e2^)
     fmt.print(")")
+  case Pow:
+    print_expr_helper(v.e1^)
+    fmt.print(" ^ ")
+    fmt.print(v.pow)
   case Fun:
     switch v.typ {
     case .Sin:
@@ -112,6 +126,8 @@ print_expr_helper :: proc(e: Expr) {
       fmt.print("sqrt(")
     case .Log:
       fmt.print("log(")
+    case .Inv:
+      fmt.print("inv(")
     }
     print_expr_helper(v.e1^)
     fmt.print(")")
@@ -134,10 +150,11 @@ print_expr_helper :: proc(e: Expr) {
 }
 
 generate_function :: proc(params: []string, depth: int, ok: ^bool) -> ^Expr {
-  variants := [6]int{1, 2, 3, 4, 5, 6}
+  variants := [7]int{1, 2, 3, 4, 5, 6, 7}
   short_variants := [2]int{1, 2}
-  functions := [4]FunType{.Sin, .Abs, .Sqrt, .Log}
+  functions := [5]FunType{.Sin, .Abs, .Sqrt, .Log, .Inv}
   conditions := [2]Cond{.Equal, .Less}
+  powers := [2]int{2, 3}
   n := rand.choice(depth > 0 ? variants[:] : short_variants[:])
   e := new(Expr)
   switch n {
@@ -154,8 +171,10 @@ generate_function :: proc(params: []string, depth: int, ok: ^bool) -> ^Expr {
   case 4:
     e^ = Mul{generate_function(params, depth - 1, ok), generate_function(params, depth - 1, ok)}
   case 5:
-    e^ = Fun{rand.choice(functions[:]), generate_function(params, depth - 1, ok)}
+    e^ = Pow{rand.choice(powers[:]), generate_function(params, depth - 1, ok)}
   case 6:
+    e^ = Fun{rand.choice(functions[:]), generate_function(params, depth - 1, ok)}
+  case 7:
     e^ = If{rand.choice(conditions[:]), generate_function(params, depth - 1, ok), generate_function(params, depth - 1, ok), generate_function(params, depth - 1, ok), generate_function(params, depth - 1, ok)}
   }
   return e
@@ -171,6 +190,8 @@ compute_function :: proc(fun: ^Expr, params: map[string]f64) -> (res: f64) {
     res = compute_function(v.e1, params) + compute_function(v.e2, params)
   case Mul:
     res = compute_function(v.e1, params) * compute_function(v.e2, params)
+  case Pow:
+    res = math.pow(compute_function(v.e1, params), f64(v.pow))
   case Fun:
     val := compute_function(v.e1, params)
     switch v.typ {
@@ -182,6 +203,8 @@ compute_function :: proc(fun: ^Expr, params: map[string]f64) -> (res: f64) {
       res = math.abs(val)
     case .Log:
       res = math.abs(val)
+    case .Inv:
+      res = val == 0 ? val : (1 / val)
     }
   case If:
     val1 := compute_function(v.a, params)
@@ -209,6 +232,7 @@ Options :: struct {
   size:     f64 `args:"name=s",usage:"Field size"`,
   width:    int `args:"name=width",usage:"Width"`,
   height:   int `args:"name=height",usage:"Height"`,
+  single:   bool `args:"name=l",usage:"Single function"`,
 }
 
 main :: proc() {
@@ -226,7 +250,7 @@ main :: proc() {
       mem.tracking_allocator_destroy(&track)
     }
   }
-  opts := Options{"image.png", 0, 10, math.PI, 1024, 1024}
+  opts := Options{"image.png", 0, 10, math.PI, 1024, 1024, false}
   flags.parse_or_exit(&opts, os.args, .Unix)
   context.user_ptr = &opts
   if opts.attempts == 0 {
@@ -280,8 +304,8 @@ perform :: proc(n: int, opts: Options) {
     params["x"] = f64(x) / f64(width) * opts.size * 2 - opts.size
     params["y"] = f64(y) / f64(height) * opts.size * 2 - opts.size
     buf_r[i] = compute_function(fun_r, params)
-    buf_g[i] = compute_function(fun_g, params)
-    buf_b[i] = compute_function(fun_b, params)
+    buf_g[i] = opts.single ? buf_r[i] : compute_function(fun_g, params)
+    buf_b[i] = opts.single ? buf_r[i] : compute_function(fun_b, params)
   }
   min_r := buf_r[0]
   max_r := min_r
