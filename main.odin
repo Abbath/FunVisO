@@ -28,12 +28,26 @@ Fun :: struct {
   e1:  ^Expr,
 }
 
+Cond :: enum {
+  Equal,
+  Less,
+}
+
+If :: struct {
+  cond: Cond,
+  a:    ^Expr,
+  b:    ^Expr,
+  c:    ^Expr,
+  d:    ^Expr,
+}
+
 Expr :: union {
   f64,
   string,
   Add,
   Mul,
   Fun,
+  If,
 }
 
 free_expr :: proc(e: ^Expr) {
@@ -52,6 +66,12 @@ free_expr :: proc(e: ^Expr) {
     free(e)
   case Fun:
     free_expr(v.e1)
+    free(e)
+  case If:
+    free_expr(v.a)
+    free_expr(v.b)
+    free_expr(v.c)
+    free_expr(v.d)
     free(e)
   }
 }
@@ -92,13 +112,29 @@ print_expr_helper :: proc(e: Expr) {
     }
     print_expr_helper(v.e1^)
     fmt.print(")")
+  case If:
+    fmt.print("if(")
+    print_expr_helper(v.a^)
+    switch v.cond {
+    case .Equal:
+      fmt.print(" == ")
+    case .Less:
+      fmt.print(" < ")
+    }
+    print_expr_helper(v.b^)
+    fmt.print(", ")
+    print_expr_helper(v.c^)
+    fmt.print(", ")
+    print_expr_helper(v.d^)
+    fmt.print(")")
   }
 }
 
-generate_function :: proc(params: []string, depth: int) -> ^Expr {
-  variants := [5]int{1, 2, 3, 4, 5}
+generate_function :: proc(params: []string, depth: int, ok: ^bool) -> ^Expr {
+  variants := [6]int{1, 2, 3, 4, 5, 6}
   short_variants := [2]int{1, 2}
   functions := [4]FunType{.Sin, .Abs, .Sqrt, .Log}
+  conditions := [2]Cond{.Equal, .Less}
   n := rand.choice(depth > 0 ? variants[:] : short_variants[:])
   e := new(Expr)
   switch n {
@@ -107,13 +143,16 @@ generate_function :: proc(params: []string, depth: int) -> ^Expr {
     return e
   case 2:
     e^ = rand.choice(params)
+    ok^ = true
     return e
   case 3:
-    e^ = Add{generate_function(params, depth - 1), generate_function(params, depth - 1)}
+    e^ = Add{generate_function(params, depth - 1, ok), generate_function(params, depth - 1, ok)}
   case 4:
-    e^ = Mul{generate_function(params, depth - 1), generate_function(params, depth - 1)}
+    e^ = Mul{generate_function(params, depth - 1, ok), generate_function(params, depth - 1, ok)}
   case 5:
-    e^ = Fun{rand.choice(functions[:]), generate_function(params, depth - 1)}
+    e^ = Fun{rand.choice(functions[:]), generate_function(params, depth - 1, ok)}
+  case 6:
+    e^ = If{rand.choice(conditions[:]), generate_function(params, depth - 1, ok), generate_function(params, depth - 1, ok), generate_function(params, depth - 1, ok), generate_function(params, depth - 1, ok)}
   }
   return e
 }
@@ -140,6 +179,21 @@ compute_function :: proc(fun: ^Expr, params: map[string]f64) -> (res: f64) {
     case .Log:
       res = math.abs(val)
     }
+  case If:
+    val1 := compute_function(v.a, params)
+    val2 := compute_function(v.b, params)
+    cond: bool
+    switch v.cond {
+    case .Equal:
+      cond = val1 == val2
+    case .Less:
+      cond = val1 < val2
+    }
+    if cond {
+      res = compute_function(v.c, params)
+    } else {
+      res = compute_function(v.d, params)
+    }
   }
   return
 }
@@ -160,11 +214,24 @@ main :: proc() {
     }
   }
   gen_params := [2]string{"x", "y"}
-  fun_r := generate_function(gen_params[:], 25)
+  ok_r := false
+  ok_g := false
+  ok_b := false
+  fun_r, fun_g, fun_b: ^Expr
+  for !ok_r {
+    if fun_r != nil do free_expr(fun_r)
+    fun_r = generate_function(gen_params[:], 10, &ok_r)
+  }
   defer free_expr(fun_r)
-  fun_g := generate_function(gen_params[:], 25)
+  for !ok_g {
+    if fun_g != nil do free_expr(fun_g)
+    fun_g = generate_function(gen_params[:], 10, &ok_g)
+  }
   defer free_expr(fun_g)
-  fun_b := generate_function(gen_params[:], 25)
+  for !ok_b {
+    if fun_b != nil do free_expr(fun_b)
+    fun_b = generate_function(gen_params[:], 10, &ok_b)
+  }
   defer free_expr(fun_b)
   print_expr(fun_r^)
   print_expr(fun_g^)
