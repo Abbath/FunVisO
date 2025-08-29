@@ -133,12 +133,12 @@ compute_function :: proc(fun: ^Expr, params: map[string]f64) -> (res: f64) {
 }
 
 main :: proc() {
-  params := [2]string{"x", "y"}
-  fun_r := generate_function(params[:])
+  gen_params := [2]string{"x", "y"}
+  fun_r := generate_function(gen_params[:])
   defer free_expr(fun_r)
-  fun_g := generate_function(params[:])
+  fun_g := generate_function(gen_params[:])
   defer free_expr(fun_g)
-  fun_b := generate_function(params[:])
+  fun_b := generate_function(gen_params[:])
   defer free_expr(fun_b)
   print_expr(fun_r^)
   print_expr(fun_g^)
@@ -153,12 +153,13 @@ main :: proc() {
   defer delete(buf_b)
   buf := make([dynamic]u8, width * height * 3)
   defer delete(buf)
+  params := make(map[string]f64)
+  defer delete(params)
   for i in 0 ..< width * height {
     x := i % width
     y := i / width
-    params := make(map[string]f64)
-    params["x"] = auto_cast x / f64(width) * math.PI * 2 - math.PI
-    params["y"] = auto_cast y / f64(height) * math.PI * 2 - math.PI
+    params["x"] = f64(x) / f64(width) * math.PI * 2 - math.PI
+    params["y"] = f64(y) / f64(height) * math.PI * 2 - math.PI
     buf_r[i] = compute_function(fun_r, params)
     buf_g[i] = compute_function(fun_g, params)
     buf_b[i] = compute_function(fun_b, params)
@@ -172,15 +173,17 @@ main :: proc() {
   for i in 1 ..< width * height {
     if buf_r[i] < min_r do min_r = buf_r[i]
     if buf_r[i] > max_r do max_r = buf_r[i]
+
     if buf_g[i] < min_g do min_g = buf_g[i]
     if buf_g[i] > max_g do max_g = buf_g[i]
+
     if buf_b[i] < min_b do min_b = buf_b[i]
     if buf_b[i] > max_b do max_b = buf_b[i]
   }
   for i in 0 ..< width * height {
-    buf[3 * i + 0] = u8(buf_r[i] - min_r / (max_r - min_r) * 255)
-    buf[3 * i + 1] = u8(buf_g[i] - min_g / (max_g - min_g) * 255)
-    buf[3 * i + 2] = u8(buf_b[i] - min_b / (max_b - min_b) * 255)
+    buf[3 * i + 0] = u8((buf_r[i] - min_r) / (max_r - min_r) * 255)
+    buf[3 * i + 1] = u8((buf_g[i] - min_g) / (max_g - min_g) * 255)
+    buf[3 * i + 2] = u8((buf_b[i] - min_b) / (max_b - min_b) * 255)
   }
   image.write_png("image.png", auto_cast width, auto_cast height, 3, raw_data(buf), auto_cast width * 3)
 }
