@@ -15,11 +15,22 @@ Mul :: struct {
   e2: ^Expr,
 }
 
+FunType :: enum {
+  Sin,
+  Abs,
+}
+
+Fun :: struct {
+  typ: FunType,
+  e1:  ^Expr,
+}
+
 Expr :: union {
   f64,
   string,
   Add,
   Mul,
+  Fun,
 }
 
 free_expr :: proc(e: ^Expr) {
@@ -36,11 +47,50 @@ free_expr :: proc(e: ^Expr) {
     free_expr(v.e1)
     free_expr(v.e2)
     free(e)
+  case Fun:
+    free_expr(v.e1)
+    free(e)
+  }
+}
+
+print_expr :: proc(e: Expr) {
+  print_expr_helper(e)
+  fmt.println()
+}
+
+print_expr_helper :: proc(e: Expr) {
+  switch v in e {
+  case f64:
+    fmt.printf("%v", v)
+  case string:
+    fmt.printf("%v", v)
+  case Add:
+    fmt.print("(")
+    print_expr_helper(v.e1^)
+    fmt.print(" + ")
+    print_expr_helper(v.e2^)
+    fmt.print(")")
+  case Mul:
+    fmt.print("(")
+    print_expr_helper(v.e1^)
+    fmt.print(" * ")
+    print_expr_helper(v.e2^)
+    fmt.print(")")
+  case Fun:
+    switch v.typ {
+    case .Sin:
+      fmt.print("sin(")
+    case .Abs:
+      fmt.print("abs(")
+    }
+    print_expr_helper(v.e1^)
+    fmt.print(")")
   }
 }
 
 generate_function :: proc(params: []string) -> ^Expr {
-  variants := [4]int{1, 2, 3, 4}
+  variants := [5]int{1, 2, 3, 4, 5}
+  functions := [2]FunType{.Sin, .Abs}
   n := rand.choice(variants[:])
   e := new(Expr)
   switch n {
@@ -54,6 +104,8 @@ generate_function :: proc(params: []string) -> ^Expr {
     e^ = Add{generate_function(params), generate_function(params)}
   case 4:
     e^ = Mul{generate_function(params), generate_function(params)}
+  case 5:
+    e^ = Fun{rand.choice(functions[:]), generate_function(params)}
   }
   return e
 }
@@ -68,6 +120,14 @@ compute_function :: proc(fun: ^Expr, params: map[string]f64) -> (res: f64) {
     res = compute_function(v.e1, params) + compute_function(v.e2, params)
   case Mul:
     res = compute_function(v.e1, params) * compute_function(v.e2, params)
+  case Fun:
+    val := compute_function(v.e1, params)
+    switch v.typ {
+    case .Sin:
+      res = math.sin(val)
+    case .Abs:
+      res = math.abs(val)
+    }
   }
   return
 }
@@ -80,9 +140,9 @@ main :: proc() {
   defer free_expr(fun_g)
   fun_b := generate_function(params[:])
   defer free_expr(fun_b)
-  fmt.println(fun_r^)
-  fmt.println(fun_g^)
-  fmt.println(fun_b^)
+  print_expr(fun_r^)
+  print_expr(fun_g^)
+  print_expr(fun_b^)
   width := 1024
   height := 1024
   buf_r := make([dynamic]f64, width * height)
@@ -99,12 +159,9 @@ main :: proc() {
     params := make(map[string]f64)
     params["x"] = auto_cast x / f64(width) * math.PI * 2 - math.PI
     params["y"] = auto_cast y / f64(height) * math.PI * 2 - math.PI
-    r := compute_function(fun_r, params)
-    g := compute_function(fun_g, params)
-    b := compute_function(fun_b, params)
-    buf_r[i] = r
-    buf_g[i] = g
-    buf_b[i] = b
+    buf_r[i] = compute_function(fun_r, params)
+    buf_g[i] = compute_function(fun_g, params)
+    buf_b[i] = compute_function(fun_b, params)
   }
   min_r := buf_r[0]
   max_r := min_r
