@@ -114,9 +114,11 @@ print_expr_helper :: proc(e: Expr) {
     print_expr_helper(v.e2^)
     fmt.print(")")
   case Pow:
+    fmt.print("(")
     print_expr_helper(v.e1^)
     fmt.print(" ^ ")
     fmt.print(v.pow)
+    fmt.print(")")
   case Fun:
     switch v.typ {
     case .Sin:
@@ -152,35 +154,49 @@ print_expr_helper :: proc(e: Expr) {
   }
 }
 
-generate_function :: proc(params: []string, depth: int, ok: ^bool) -> ^Expr {
+generate_function :: proc(params: []string, depth: int) -> (res: ^Expr, ok: bool) {
   variants := [7]int{1, 2, 3, 4, 5, 6, 7}
   short_variants := [2]int{1, 2}
   functions := [5]FunType{.Sin, .Abs, .Sqrt, .Log, .Inv}
   conditions := [3]Cond{.Equal, .Less, .GreaterEqual}
   powers := [2]int{2, 3}
   n := rand.choice(depth > 0 ? variants[:] : short_variants[:])
-  e := new(Expr)
+  res = new(Expr)
   switch n {
   case 1:
     opts: ^Options = auto_cast context.user_ptr
-    e^ = rand.float64_uniform(-opts.constant, opts.constant)
-    return e
+    res^ = rand.float64_uniform(-opts.constant, opts.constant)
+    ok = false
   case 2:
-    e^ = rand.choice(params)
-    ok^ = true
-    return e
+    res^ = rand.choice(params)
+    ok = true
   case 3:
-    e^ = Add{generate_function(params, depth - 1, ok), generate_function(params, depth - 1, ok)}
+    f1, ok1 := generate_function(params, depth - 1)
+    f2, ok2 := generate_function(params, depth - 1)
+    ok = ok1 || ok2
+    res^ = Add{f1, f2}
   case 4:
-    e^ = Mul{generate_function(params, depth - 1, ok), generate_function(params, depth - 1, ok)}
+    f1, ok1 := generate_function(params, depth - 1)
+    f2, ok2 := generate_function(params, depth - 1)
+    ok = ok1 || ok2
+    res^ = Mul{f1, f2}
   case 5:
-    e^ = Pow{rand.choice(powers[:]), generate_function(params, depth - 1, ok)}
+    f1, ok1 := generate_function(params, depth - 1)
+    ok |= ok1
+    res^ = Pow{rand.choice(powers[:]), f1}
   case 6:
-    e^ = Fun{rand.choice(functions[:]), generate_function(params, depth - 1, ok)}
+    f1, ok1 := generate_function(params, depth - 1)
+    ok |= ok1
+    res^ = Fun{rand.choice(functions[:]), f1}
   case 7:
-    e^ = If{rand.choice(conditions[:]), generate_function(params, depth - 1, ok), generate_function(params, depth - 1, ok), generate_function(params, depth - 1, ok), generate_function(params, depth - 1, ok)}
+    f1, ok1 := generate_function(params, depth - 1)
+    f2, ok2 := generate_function(params, depth - 1)
+    f3, ok3 := generate_function(params, depth - 1)
+    f4, ok4 := generate_function(params, depth - 1)
+    ok = (ok1 || ok2) && (ok3 || ok4)
+    res^ = If{rand.choice(conditions[:]), f1, f2, f3, f4}
   }
-  return e
+  return
 }
 
 compute_function :: proc(fun: ^Expr, params: map[string]f64) -> (res: f64) {
@@ -238,6 +254,7 @@ Options :: struct {
   width:    int `args:"name=width",usage:"Width"`,
   height:   int `args:"name=height",usage:"Height"`,
   single:   bool `args:"name=l",usage:"Single function"`,
+  depth:    int `args:"name=d",usage:"Max function depth"`,
 }
 
 main :: proc() {
@@ -255,7 +272,7 @@ main :: proc() {
       mem.tracking_allocator_destroy(&track)
     }
   }
-  opts := Options{"image.png", 0, 10, math.PI, 1024, 1024, false}
+  opts := Options{"image.png", 0, 10, math.PI, 1024, 1024, false, 10}
   flags.parse_or_exit(&opts, os.args, .Unix)
   context.user_ptr = &opts
   if opts.attempts == 0 {
@@ -269,23 +286,24 @@ main :: proc() {
 
 perform :: proc(n: int, opts: Options) {
   gen_params := [2]string{"x", "y"}
-  ok_r := false
-  ok_g := false
-  ok_b := false
+  ok: bool
   fun_r, fun_g, fun_b: ^Expr
-  for !ok_r {
+  for {
     if fun_r != nil do free_expr(fun_r)
-    fun_r = generate_function(gen_params[:], 10, &ok_r)
+    fun_r, ok = generate_function(gen_params[:], opts.depth)
+    if ok do break
   }
   defer free_expr(fun_r)
-  for !ok_g {
+  for {
     if fun_g != nil do free_expr(fun_g)
-    fun_g = generate_function(gen_params[:], 10, &ok_g)
+    fun_g, ok = generate_function(gen_params[:], opts.depth)
+    if ok do break
   }
   defer free_expr(fun_g)
-  for !ok_b {
+  for {
     if fun_b != nil do free_expr(fun_b)
-    fun_b = generate_function(gen_params[:], 10, &ok_b)
+    fun_b, ok = generate_function(gen_params[:], opts.depth)
+    if ok do break
   }
   defer free_expr(fun_b)
   print_expr(fun_r^)
