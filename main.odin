@@ -261,15 +261,15 @@ compute_function :: proc(fun: ^Expr, params: map[string]f64) -> (res: f64) {
 }
 
 Options :: struct {
-  filename: string `args:"name=o",usage:"Output filepath"`,
-  attempts: int `args:"name=a",usage:"Number of generated images"`,
-  constant: f64 `args:"name=c",usage:"Constant size"`,
-  size:     f64 `args:"name=s",usage:"Field size"`,
-  width:    int `args:"name=width",usage:"Width"`,
-  height:   int `args:"name=height",usage:"Height"`,
-  single:   bool `args:"name=l",usage:"Single function"`,
-  depth:    int `args:"name=d",usage:"Max function depth"`,
-  weights:  string `args:"name=w",usage:"Weights"`,
+  filename: string `args:"name=o" usage:"Output filepath"`,
+  attempts: int `args:"name=a" usage:"Number of generated images"`,
+  constant: f64 `args:"name=c" usage:"Constant size"`,
+  size:     f64 `args:"name=s" usage:"Field size"`,
+  width:    int `args:"name=width" usage:"Width"`,
+  height:   int `args:"name=height" usage:"Height"`,
+  single:   bool `args:"name=l" usage:"Single function"`,
+  depth:    int `args:"name=d" usage:"Max function depth"`,
+  weights:  string `args:"name=w" usage:"Weights"`,
 }
 
 convert_weights :: proc(ws: string) -> (res: [7]f64) {
