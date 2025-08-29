@@ -1,9 +1,12 @@
 package main
 
+import "core:flags"
 import "core:fmt"
 import "core:math"
 import "core:math/rand"
 import "core:mem"
+import "core:os"
+import "core:path/filepath"
 import "vendor:stb/image"
 
 Add :: struct {
@@ -139,7 +142,8 @@ generate_function :: proc(params: []string, depth: int, ok: ^bool) -> ^Expr {
   e := new(Expr)
   switch n {
   case 1:
-    e^ = rand.float64_uniform(-10, 10)
+    opts: ^Options = auto_cast context.user_ptr
+    e^ = rand.float64_uniform(-opts.constant, opts.constant)
     return e
   case 2:
     e^ = rand.choice(params)
@@ -198,6 +202,15 @@ compute_function :: proc(fun: ^Expr, params: map[string]f64) -> (res: f64) {
   return
 }
 
+Options :: struct {
+  filename: string `args:"name=o",usage:"Output filepath"`,
+  attempts: int `args:"name=a",usage:"Number of generated images"`,
+  constant: f64 `args:"name=c",usage:"Constant size"`,
+  size:     f64 `args:"name=s",usage:"Field size"`,
+  width:    int `args:"name=width",usage:"Width"`,
+  height:   int `args:"name=height",usage:"Height"`,
+}
+
 main :: proc() {
   when ODIN_DEBUG {
     track: mem.Tracking_Allocator
@@ -213,6 +226,19 @@ main :: proc() {
       mem.tracking_allocator_destroy(&track)
     }
   }
+  opts := Options{"image.png", 0, 10, math.PI, 1024, 1024}
+  flags.parse_or_exit(&opts, os.args, .Unix)
+  context.user_ptr = &opts
+  if opts.attempts == 0 {
+    perform(-1, opts)
+  } else {
+    for i in 0 ..< opts.attempts {
+      perform(i, opts)
+    }
+  }
+}
+
+perform :: proc(n: int, opts: Options) {
   gen_params := [2]string{"x", "y"}
   ok_r := false
   ok_g := false
@@ -236,8 +262,8 @@ main :: proc() {
   print_expr(fun_r^)
   print_expr(fun_g^)
   print_expr(fun_b^)
-  width := 1024
-  height := 1024
+  width := opts.width
+  height := opts.height
   buf_r := make([dynamic]f64, width * height)
   defer delete(buf_r)
   buf_g := make([dynamic]f64, width * height)
@@ -251,8 +277,8 @@ main :: proc() {
   for i in 0 ..< width * height {
     x := i % width
     y := i / width
-    params["x"] = f64(x) / f64(width) * math.PI * 2 - math.PI
-    params["y"] = f64(y) / f64(height) * math.PI * 2 - math.PI
+    params["x"] = f64(x) / f64(width) * opts.size * 2 - opts.size
+    params["y"] = f64(y) / f64(height) * opts.size * 2 - opts.size
     buf_r[i] = compute_function(fun_r, params)
     buf_g[i] = compute_function(fun_g, params)
     buf_b[i] = compute_function(fun_b, params)
@@ -278,5 +304,11 @@ main :: proc() {
     buf[3 * i + 1] = u8((buf_g[i] - min_g) / (max_g - min_g) * 255)
     buf[3 * i + 2] = u8((buf_b[i] - min_b) / (max_b - min_b) * 255)
   }
-  image.write_png("image.png", auto_cast width, auto_cast height, 3, raw_data(buf), auto_cast width * 3)
+  fname := opts.filename
+  if n >= 0 {
+    dir, name := filepath.split(fname)
+    fname = filepath.join({dir, fmt.tprintf("%v_%03d%v", filepath.stem(fname), n, filepath.ext(fname))}, context.temp_allocator)
+  }
+  image.write_png(fmt.ctprint(fname), auto_cast width, auto_cast height, 3, raw_data(buf), auto_cast width * 3)
+  free_all(context.temp_allocator)
 }
