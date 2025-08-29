@@ -7,6 +7,8 @@ import "core:math/rand"
 import "core:mem"
 import "core:os"
 import "core:path/filepath"
+import "core:strconv"
+import "core:strings"
 import "vendor:stb/image"
 
 Add :: struct {
@@ -160,11 +162,21 @@ generate_function :: proc(params: []string, depth: int) -> (res: ^Expr, ok: bool
   functions := [5]FunType{.Sin, .Abs, .Sqrt, .Log, .Inv}
   conditions := [3]Cond{.Equal, .Less, .GreaterEqual}
   powers := [2]int{2, 3}
-  n := rand.choice(depth > 0 ? variants[:] : short_variants[:])
+  opts: ^Options = auto_cast context.user_ptr
+  weights := convert_weights(opts.weights)
+  n := rand.choice(short_variants[:])
+  if depth > 0 {
+    v := rand.float64_uniform(0, 1)
+    for w, idx in weights {
+      if v < w {
+        n = idx + 1
+        break
+      }
+    }
+  }
   res = new(Expr)
   switch n {
   case 1:
-    opts: ^Options = auto_cast context.user_ptr
     res^ = rand.float64_uniform(-opts.constant, opts.constant)
     ok = false
   case 2:
@@ -255,6 +267,27 @@ Options :: struct {
   height:   int `args:"name=height",usage:"Height"`,
   single:   bool `args:"name=l",usage:"Single function"`,
   depth:    int `args:"name=d",usage:"Max function depth"`,
+  weights:  string `args:"name=w",usage:"Weights"`,
+}
+
+convert_weights :: proc(ws: string) -> (res: [7]f64) {
+  parts := strings.split(ws, " ")
+  defer delete(parts)
+  if len(parts) != 7 {
+    fmt.eprintln("There should be 7 weights")
+    os.exit(1)
+  }
+  sums: [7]f64
+  for i in 0 ..< 7 {
+    res[i] = f64(strconv.atoi(parts[i]))
+    for j in i ..< 7 {
+      sums[j] += res[i]
+    }
+  }
+  for i in 0 ..< 7 {
+    res[i] = sums[i] / sums[6]
+  }
+  return
 }
 
 main :: proc() {
@@ -272,7 +305,7 @@ main :: proc() {
       mem.tracking_allocator_destroy(&track)
     }
   }
-  opts := Options{"image.png", 0, 10, math.PI, 1024, 1024, false, 10}
+  opts := Options{"image.png", 0, 10, math.PI, 1024, 1024, false, 10, "1 1 1 1 1 1 1"}
   flags.parse_or_exit(&opts, os.args, .Unix)
   context.user_ptr = &opts
   if opts.attempts == 0 {
