@@ -68,97 +68,92 @@ Expr :: union {
 
 free_expr :: proc(e: ^Expr) {
   switch v in e {
-  case f64:
-    free(e)
-  case string:
-    free(e)
+  case f64, string:
   case Add:
     free_expr(v.e1)
     free_expr(v.e2)
-    free(e)
   case Mul:
     free_expr(v.e1)
     free_expr(v.e2)
-    free(e)
   case Pow:
     free_expr(v.e1)
-    free(e)
   case Fun:
     free_expr(v.e1)
-    free(e)
   case If:
     free_expr(v.a)
     free_expr(v.b)
     free_expr(v.c)
     free_expr(v.d)
-    free(e)
   }
+  free(e)
 }
 
-print_expr :: proc(e: Expr) {
-  print_expr_helper(e)
-  fmt.println()
-}
-
-print_expr_helper :: proc(e: Expr) {
-  switch v in e {
-  case f64:
-    fmt.printf("%v", v)
-  case string:
-    fmt.printf("%v", v)
-  case Add:
-    fmt.print("(")
-    print_expr_helper(v.e1^)
-    fmt.print(" + ")
-    print_expr_helper(v.e2^)
-    fmt.print(")")
-  case Mul:
-    fmt.print("(")
-    print_expr_helper(v.e1^)
-    fmt.print(" * ")
-    print_expr_helper(v.e2^)
-    fmt.print(")")
-  case Pow:
-    fmt.print("(")
-    print_expr_helper(v.e1^)
-    fmt.print(" ^ ")
-    fmt.print(v.pow)
-    fmt.print(")")
-  case Fun:
-    switch v.typ {
-    case .Sin:
-      fmt.print("sin(")
-    case .Abs:
-      fmt.print("abs(")
-    case .Sqrt:
-      fmt.print("sqrt(")
-    case .Log:
-      fmt.print("log(")
-    case .Inv:
-      fmt.print("inv(")
+User_Formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
+  m := cast(^Expr)arg.data
+  switch verb {
+  case 'v':
+    switch v in m {
+    case f64:
+      fmt.fmt_float(fi, v, 64, verb)
+    case string:
+      fmt.fmt_string(fi, v, verb)
+    case Add:
+      fmt.fmt_string(fi, "(", verb)
+      User_Formatter(fi, v.e1^, verb)
+      fmt.fmt_string(fi, " + ", verb)
+      User_Formatter(fi, v.e2^, verb)
+      fmt.fmt_string(fi, ")", verb)
+    case Mul:
+      fmt.fmt_string(fi, "(", verb)
+      User_Formatter(fi, v.e1^, verb)
+      fmt.fmt_string(fi, " * ", verb)
+      User_Formatter(fi, v.e2^, verb)
+      fmt.fmt_string(fi, ")", verb)
+    case Pow:
+      fmt.fmt_string(fi, "(", verb)
+      User_Formatter(fi, v.e1^, verb)
+      fmt.fmt_string(fi, " ^ ", verb)
+      fmt.fmt_int(fi, transmute(u64)v.pow, false, 64, verb)
+      fmt.fmt_string(fi, ")", verb)
+    case Fun:
+      switch v.typ {
+      case .Sin:
+        fmt.fmt_string(fi, "sin(", verb)
+      case .Abs:
+        fmt.fmt_string(fi, "abs(", verb)
+      case .Sqrt:
+        fmt.fmt_string(fi, "sqrt(", verb)
+      case .Log:
+        fmt.fmt_string(fi, "log(", verb)
+      case .Inv:
+        fmt.fmt_string(fi, "inv(", verb)
+      }
+      User_Formatter(fi, v.e1^, verb)
+      fmt.fmt_string(fi, ")", verb)
+    case If:
+      fmt.fmt_string(fi, "if(", verb)
+      User_Formatter(fi, v.a^, verb)
+      switch v.cond {
+      case .Equal:
+        fmt.fmt_string(fi, " == ", verb)
+      case .NotEqual:
+        fmt.fmt_string(fi, " != ", verb)
+      case .Less:
+        fmt.fmt_string(fi, " < ", verb)
+      case .GreaterEqual:
+        fmt.fmt_string(fi, " >= ", verb)
+      }
+      User_Formatter(fi, v.b^, verb)
+      fmt.fmt_string(fi, ", ", verb)
+      User_Formatter(fi, v.c^, verb)
+      fmt.fmt_string(fi, ", ", verb)
+      User_Formatter(fi, v.d^, verb)
+      fmt.fmt_string(fi, ")", verb)
     }
-    print_expr_helper(v.e1^)
-    fmt.print(")")
-  case If:
-    fmt.print("if(")
-    print_expr_helper(v.a^)
-    switch v.cond {
-    case .Equal:
-      fmt.print(" == ")
-    case .NotEqual:
-      fmt.print(" != ")
-    case .Less:
-      fmt.print(" < ")
-    case .GreaterEqual:
-      fmt.print(" >= ")
-    }
-    print_expr_helper(v.b^)
-    fmt.print(", ")
-    print_expr_helper(v.c^)
-    fmt.print(", ")
-    print_expr_helper(v.d^)
-    fmt.print(")")
+  case:
+    return false
   }
+  return true
 }
 
 generate_function :: proc(params: []string, depth: int) -> (res: ^Expr, ok: bool) {
@@ -313,6 +308,9 @@ main :: proc() {
       mem.tracking_allocator_destroy(&track)
     }
   }
+  fmt.set_user_formatters(new(map[typeid]fmt.User_Formatter))
+  err := fmt.register_user_formatter(type_info_of(Expr).id, User_Formatter)
+  assert(err == .None)
   opts := Options{"image.png", 0, 10, math.PI, 1024, 1024, false, 10, "1 1 1 1 1 1 1", 0}
   flags.parse_or_exit(&opts, os.args, .Unix)
   context.user_ptr = &opts
@@ -371,9 +369,9 @@ generate_functions :: proc(opts: Options) -> Funcs {
     fun_b, ok = generate_function(gen_params[:], opts.depth)
     if ok do break
   }
-  print_expr(fun_r^)
-  print_expr(fun_g^)
-  print_expr(fun_b^)
+  fmt.println(fun_r^)
+  fmt.println(fun_g^)
+  fmt.println(fun_b^)
   return {fun_r, fun_g, fun_b}
 }
 
