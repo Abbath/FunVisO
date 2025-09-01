@@ -427,8 +427,10 @@ main :: proc() {
     }
   }
 
-  fmt.set_user_formatters(new(map[typeid]fmt.User_Formatter))
+  formatters := make(map[typeid]fmt.User_Formatter)
+  fmt.set_user_formatters(&formatters)
   err := fmt.register_user_formatter(type_info_of(Expr).id, User_Formatter)
+  defer delete(formatters)
   assert(err == .None)
 
   opts := Options{"image.png", 0, 10, math.PI, 1024, 1024, false, 10, "1 1 1 1 1 1 1", 0, "", "", ""}
@@ -443,12 +445,15 @@ main :: proc() {
   if opts.attempts == 0 {
     funcs := generate_functions(opts)
     if u_fun_r != nil {
+      free_expr(funcs.fun_r)
       funcs.fun_r = u_fun_r
     }
     if u_fun_g != nil {
+      free_expr(funcs.fun_g)
       funcs.fun_g = u_fun_g
     }
     if u_fun_b != nil {
+      free_expr(funcs.fun_b)
       funcs.fun_b = u_fun_b
     }
     defer free_funcs(funcs)
