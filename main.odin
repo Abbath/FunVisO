@@ -170,7 +170,7 @@ parse_expr :: proc(input: ^Input) -> (res: ^Expr) {
     res = new(Expr)
     res^ = val
   }
-  if res != nil && (starts_with(input^, "+") || starts_with(input^, "*")) {
+  if res != nil && (starts_with(input^, "+") || starts_with(input^, "*") || starts_with(input^, "^")) {
     op := pop_input(input, 1)
     rhs := parse_expr(input)
     lhs := res
@@ -180,6 +180,10 @@ parse_expr :: proc(input: ^Input) -> (res: ^Expr) {
       res^ = Add{lhs, rhs}
     case "*":
       res^ = Mul{lhs, rhs}
+    case "^":
+      pow := int(rhs^.(f64))
+      free(rhs)
+      res^ = Pow{pow, lhs}
     }
   }
   return
