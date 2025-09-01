@@ -7,10 +7,12 @@ import "core:math/rand"
 import "core:mem"
 import "core:os"
 import "core:path/filepath"
+import "core:slice"
 import "core:strconv"
 import "core:strings"
 import "core:sync"
 import "core:thread"
+import "core:unicode"
 import "vendor:stb/image"
 
 Add :: struct {
@@ -64,6 +66,123 @@ Expr :: union {
   Pow,
   Fun,
   If,
+}
+
+Input :: struct {
+  data: string,
+  loc:  int,
+}
+
+starts_with :: proc(input: Input, pattern: string) -> bool {
+  return strings.has_prefix(input.data[input.loc:], pattern)
+}
+
+skip_whitespace :: proc(input: ^Input) {
+  for strings.has_prefix(input.data[input.loc:], " ") do input.loc += 1
+}
+
+pop_input :: proc(input: ^Input, n: int) -> string {
+  skip_whitespace(input)
+  res := input.data[input.loc:input.loc + n]
+  input.loc += n
+  return res
+}
+
+expect :: proc(input: ^Input, pattern: string) -> bool {
+  skip_whitespace(input)
+  if strings.has_prefix(input.data[input.loc:], pattern) {
+    input.loc += len(pattern)
+    return true
+  }
+  return false
+}
+
+pop_float :: proc(input: ^Input) -> (res: f64, ok: bool) {
+  skip_whitespace(input)
+  r: rune
+  for rr, idx in input.data[input.loc:] {
+    if idx == 0 {
+      r = rr
+      break
+    }
+  }
+  if unicode.is_digit(r) || r == '-' {
+    val, nr, ok := strconv.parse_f64_prefix(input.data[input.loc:])
+    if ok {
+      input.loc += nr
+      return val, true
+    }
+  }
+  return 0, false
+}
+
+parse_expr :: proc(input: ^Input) -> (res: ^Expr) {
+  skip_whitespace(input)
+  if starts_with(input^, "x") || starts_with(input^, "y") || starts_with(input^, "t") {
+    res = new(Expr)
+    res^ = pop_input(input, 1)
+  }
+  if starts_with(input^, "(") {
+    pop_input(input, 1)
+    res = parse_expr(input)
+    expect(input, ")")
+  }
+  fun_names := [5]string{"sin(", "abs(", "sqrt(", "log(", "inv("}
+  for fun_name, idx in fun_names {
+    if starts_with(input^, fun_name) {
+      pop_input(input, len(fun_name))
+      expr := parse_expr(input)
+      expect(input, ")")
+      res = new(Expr)
+      res^ = Fun{FunType(idx), expr}
+      break
+    }
+  }
+  if starts_with(input^, "if(") {
+    pop_input(input, 3)
+    expr1 := parse_expr(input)
+    cond := pop_input(input, 1)
+    c: Cond
+    switch cond {
+    case "<":
+      c = .Less
+    case ">":
+      c = .GreaterEqual
+      pop_input(input, 1)
+    case "=":
+      c = .Equal
+      pop_input(input, 1)
+    case "!":
+      c = .NotEqual
+      pop_input(input, 1)
+    }
+    expr2 := parse_expr(input)
+    expect(input, ",")
+    expr3 := parse_expr(input)
+    expect(input, ",")
+    expr4 := parse_expr(input)
+    expect(input, ")")
+    res = new(Expr)
+    res^ = If{c, expr1, expr2, expr3, expr4}
+  }
+  val, ok := pop_float(input)
+  if ok {
+    res = new(Expr)
+    res^ = val
+  }
+  if res != nil && (starts_with(input^, "+") || starts_with(input^, "*")) {
+    op := pop_input(input, 1)
+    rhs := parse_expr(input)
+    lhs := res
+    res = new(Expr)
+    switch op {
+    case "+":
+      res^ = Add{lhs, rhs}
+    case "*":
+      res^ = Mul{lhs, rhs}
+    }
+  }
+  return
 }
 
 free_expr :: proc(e: ^Expr) {
@@ -271,6 +390,9 @@ Options :: struct {
   depth:    int `args:"name=d" usage:"Max function depth"`,
   weights:  string `args:"name=w" usage:"Weights"`,
   step:     f64 `args:"name=t" usage:"Time step"`,
+  red:      string `args:"name=r" usage:"Red function"`,
+  green:    string `args:"name=g" usage:"Green function"`,
+  blue:     string `args:"name=b" usage:"Blue function"`,
 }
 
 convert_weights :: proc(ws: string) -> (res: [7]f64) {
@@ -304,15 +426,35 @@ main :: proc() {
       mem.tracking_allocator_destroy(&track)
     }
   }
+
   fmt.set_user_formatters(new(map[typeid]fmt.User_Formatter))
   err := fmt.register_user_formatter(type_info_of(Expr).id, User_Formatter)
   assert(err == .None)
-  opts := Options{"image.png", 0, 10, math.PI, 1024, 1024, false, 10, "1 1 1 1 1 1 1", 0}
+
+  opts := Options{"image.png", 0, 10, math.PI, 1024, 1024, false, 10, "1 1 1 1 1 1 1", 0, "", "", ""}
   flags.parse_or_exit(&opts, os.args, .Unix)
+  input_r := Input{opts.red, 0}
+  input_g := Input{opts.green, 0}
+  input_b := Input{opts.blue, 0}
+  u_fun_r := parse_expr(&input_r)
+  u_fun_g := parse_expr(&input_g)
+  u_fun_b := parse_expr(&input_b)
   context.user_ptr = &opts
   if opts.attempts == 0 {
     funcs := generate_functions(opts)
+    if u_fun_r != nil {
+      funcs.fun_r = u_fun_r
+    }
+    if u_fun_g != nil {
+      funcs.fun_g = u_fun_g
+    }
+    if u_fun_b != nil {
+      funcs.fun_b = u_fun_b
+    }
     defer free_funcs(funcs)
+    fmt.println(funcs.fun_r^)
+    fmt.println(funcs.fun_g^)
+    fmt.println(funcs.fun_b^)
     perform(-1, funcs, opts)
   } else {
     funcs := generate_functions(opts)
@@ -360,9 +502,6 @@ generate_functions :: proc(opts: Options) -> Funcs {
     fun_b, ok = generate_function(gen_params[:], opts.depth)
     if ok do break
   }
-  fmt.println(fun_r^)
-  fmt.println(fun_g^)
-  fmt.println(fun_b^)
   return {fun_r, fun_g, fun_b}
 }
 
