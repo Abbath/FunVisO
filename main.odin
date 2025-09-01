@@ -283,13 +283,9 @@ convert_weights :: proc(ws: string) -> (res: [7]f64) {
   sums: [7]f64
   for i in 0 ..< 7 {
     res[i] = f64(strconv.atoi(parts[i]))
-    for j in i ..< 7 {
-      sums[j] += res[i]
-    }
+    for j in i ..< 7 do sums[j] += res[i]
   }
-  for i in 0 ..< 7 {
-    res[i] = sums[i] / sums[6]
-  }
+  for i in 0 ..< 7 do res[i] = sums[i] / sums[6]
   return
 }
 
@@ -319,11 +315,8 @@ main :: proc() {
     defer free_funcs(funcs)
     perform(-1, funcs, opts)
   } else {
-    first := true
     funcs := generate_functions(opts)
-    defer if opts.step != 0 {
-      free_funcs(funcs)
-    }
+    defer if opts.step != 0 do free_funcs(funcs)
     for i in 0 ..< opts.attempts {
       perform(i, funcs, opts)
       if opts.step == 0 {
@@ -332,9 +325,7 @@ main :: proc() {
       }
       fmt.printfln("%v/%v", i + 1, opts.attempts)
     }
-    if opts.step == 0 {
-      free_funcs(funcs)
-    }
+    if opts.step == 0 do free_funcs(funcs)
   }
 }
 
@@ -443,9 +434,7 @@ worker :: proc(t: ^thread.Thread) {
     min_c = min(min_c, buf_c[i])
     max_c = max(max_c, buf_c[i])
   }
-  for i in 0 ..< width * height {
-    wd.buf[3 * i + t.user_index] = u8((buf_c[i] - min_c) / (max_c - min_c) * 255)
-  }
+  for i in 0 ..< width * height do wd.buf[3 * i + t.user_index] = u8((buf_c[i] - min_c) / (max_c - min_c) * 255)
 }
 
 WorkerData :: struct {
