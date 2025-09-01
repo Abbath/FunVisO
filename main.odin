@@ -81,11 +81,16 @@ skip_whitespace :: proc(input: ^Input) {
   for strings.has_prefix(input.data[input.loc:], " ") do input.loc += 1
 }
 
-pop_input :: proc(input: ^Input, n: int) -> string {
+pop_input :: proc(input: ^Input, n: int) -> (res: string, ok: bool) {
   skip_whitespace(input)
-  res := input.data[input.loc:input.loc + n]
+  if n > len(input.data) - input.loc {
+    fmt.eprintln("Input is too short")
+    return "", false
+  }
+  res = input.data[input.loc:input.loc + n]
   input.loc += n
-  return res
+  ok = true
+  return
 }
 
 expect :: proc(input: ^Input, pattern: string) -> bool {
@@ -94,6 +99,7 @@ expect :: proc(input: ^Input, pattern: string) -> bool {
     input.loc += len(pattern)
     return true
   }
+  fmt.eprintfln("Expected %v at location %v", pattern, input.loc)
   return false
 }
 
@@ -116,63 +122,80 @@ pop_float :: proc(input: ^Input) -> (res: f64, ok: bool) {
   return 0, false
 }
 
-parse_expr :: proc(input: ^Input) -> (res: ^Expr) {
+parse_expr :: proc(input: ^Input) -> (res: ^Expr, ok: bool) {
   skip_whitespace(input)
+  ok = true
+  defer if res != nil && !ok {
+    free_expr(res)
+  }
   if starts_with(input^, "x") || starts_with(input^, "y") || starts_with(input^, "t") {
     res = new(Expr)
-    res^ = pop_input(input, 1)
+    res^ = pop_input(input, 1) or_return
   }
   if starts_with(input^, "(") {
-    pop_input(input, 1)
-    res = parse_expr(input)
-    expect(input, ")")
+    pop_input(input, 1) or_return
+    res = parse_expr(input) or_return
+    expect(input, ")") or_return
   }
   fun_names := [5]string{"sin(", "abs(", "sqrt(", "log(", "inv("}
   for fun_name, idx in fun_names {
     if starts_with(input^, fun_name) {
-      pop_input(input, len(fun_name))
-      expr := parse_expr(input)
-      expect(input, ")")
+      pop_input(input, len(fun_name)) or_return
+      res = parse_expr(input) or_return
+      expect(input, ")") or_return
+      expr := res
       res = new(Expr)
       res^ = Fun{FunType(idx), expr}
       break
     }
   }
   if starts_with(input^, "if(") {
-    pop_input(input, 3)
-    expr1 := parse_expr(input)
-    cond := pop_input(input, 1)
+    pop_input(input, 3) or_return
+    expr1 := parse_expr(input) or_return
+    defer if expr1 != nil && !ok {
+      free_expr(expr1)
+    }
+    cond := pop_input(input, 1) or_return
     c: Cond
     switch cond {
     case "<":
       c = .Less
     case ">":
       c = .GreaterEqual
-      pop_input(input, 1)
+      pop_input(input, 1) or_return
     case "=":
       c = .Equal
-      pop_input(input, 1)
+      pop_input(input, 1) or_return
     case "!":
       c = .NotEqual
-      pop_input(input, 1)
+      pop_input(input, 1) or_return
     }
-    expr2 := parse_expr(input)
-    expect(input, ",")
-    expr3 := parse_expr(input)
-    expect(input, ",")
-    expr4 := parse_expr(input)
-    expect(input, ")")
+    expr2 := parse_expr(input) or_return
+    defer if expr2 != nil && !ok {
+      free_expr(expr2)
+    }
+    expect(input, ",") or_return
+    expr3 := parse_expr(input) or_return
+    defer if expr3 != nil && !ok {
+      free_expr(expr3)
+    }
+    expect(input, ",") or_return
+    expr4 := parse_expr(input) or_return
+    defer if expr4 != nil && !ok {
+      free_expr(expr4)
+    }
+    expect(input, ")") or_return
     res = new(Expr)
     res^ = If{c, expr1, expr2, expr3, expr4}
   }
-  val, ok := pop_float(input)
-  if ok {
+  val, ok_float := pop_float(input)
+  if ok_float {
     res = new(Expr)
     res^ = val
   }
   if res != nil && (starts_with(input^, "+") || starts_with(input^, "*") || starts_with(input^, "^")) {
-    op := pop_input(input, 1)
-    rhs := parse_expr(input)
+    op := pop_input(input, 1) or_return
+    rhs := parse_expr(input) or_return
     lhs := res
     res = new(Expr)
     switch op {
@@ -185,6 +208,11 @@ parse_expr :: proc(input: ^Input) -> (res: ^Expr) {
       free(rhs)
       res^ = Pow{pow, lhs}
     }
+  }
+  if res == nil {
+    rest := input.data[input.loc:]
+    fmt.eprintfln("Unable to parse `%v` at location %v", len(rest) == 0 ? "empty string" : input.data[input.loc:], input.loc)
+    ok = false
   }
   return
 }
@@ -213,6 +241,9 @@ free_expr :: proc(e: ^Expr) {
 
 User_Formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
   m := cast(^Expr)arg.data
+  if m == nil {
+    return false
+  }
   switch verb {
   case 'v':
     switch v in m {
@@ -442,9 +473,9 @@ main :: proc() {
   input_r := Input{opts.red, 0}
   input_g := Input{opts.green, 0}
   input_b := Input{opts.blue, 0}
-  u_fun_r := parse_expr(&input_r)
-  u_fun_g := parse_expr(&input_g)
-  u_fun_b := parse_expr(&input_b)
+  u_fun_r := parse_expr(&input_r) or_else nil
+  u_fun_g := parse_expr(&input_g) or_else nil
+  u_fun_b := parse_expr(&input_b) or_else nil
   context.user_ptr = &opts
   if opts.attempts == 0 {
     funcs := generate_functions(opts)
