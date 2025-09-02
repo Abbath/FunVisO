@@ -157,18 +157,25 @@ parse_expr :: proc(input: ^Input) -> (res: ^Expr, ok: bool) {
     }
     cond := pop_input(input, 1) or_return
     c: Cond
+    c2 := "="
     switch cond {
     case "<":
       c = .Less
     case ">":
       c = .GreaterEqual
-      pop_input(input, 1) or_return
+      c2 = pop_input(input, 1) or_return
     case "=":
       c = .Equal
-      pop_input(input, 1) or_return
+      c2 = pop_input(input, 1) or_return
     case "!":
       c = .NotEqual
-      pop_input(input, 1) or_return
+      c2 = pop_input(input, 1) or_return
+    case:
+      fmt.eprintfln("Unknown condition %v", cond)
+      return nil, false
+    }
+    if c2 != "=" {
+      return nil, false
     }
     expr2 := parse_expr(input) or_return
     defer if expr2 != nil && !ok {
