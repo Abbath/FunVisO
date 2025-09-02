@@ -13,6 +13,7 @@ import "core:strings"
 import "core:sync"
 import "core:thread"
 import "core:unicode"
+import "core:unicode/utf8"
 import "vendor:stb/image"
 
 Add :: struct {
@@ -105,13 +106,7 @@ expect :: proc(input: ^Input, pattern: string) -> bool {
 
 pop_float :: proc(input: ^Input) -> (res: f64, ok: bool) {
   skip_whitespace(input)
-  r: rune
-  for rr, idx in input.data[input.loc:] {
-    if idx == 0 {
-      r = rr
-      break
-    }
-  }
+  r := utf8.rune_at_pos(input.data[input.loc:], 0)
   if unicode.is_digit(r) || r == '-' {
     val, nr, ok := strconv.parse_f64_prefix(input.data[input.loc:])
     if ok {
@@ -125,9 +120,7 @@ pop_float :: proc(input: ^Input) -> (res: f64, ok: bool) {
 parse_expr :: proc(input: ^Input) -> (res: ^Expr, ok: bool) {
   skip_whitespace(input)
   ok = true
-  defer if res != nil && !ok {
-    free_expr(res)
-  }
+  defer if res != nil && !ok do free_expr(res)
   if starts_with(input^, "x") || starts_with(input^, "y") || starts_with(input^, "t") {
     res = new(Expr)
     res^ = pop_input(input, 1) or_return
@@ -152,9 +145,7 @@ parse_expr :: proc(input: ^Input) -> (res: ^Expr, ok: bool) {
   if starts_with(input^, "if(") {
     pop_input(input, 3) or_return
     expr1 := parse_expr(input) or_return
-    defer if expr1 != nil && !ok {
-      free_expr(expr1)
-    }
+    defer if expr1 != nil && !ok do free_expr(expr1)
     cond := pop_input(input, 1) or_return
     c: Cond
     c2 := "="
@@ -174,23 +165,15 @@ parse_expr :: proc(input: ^Input) -> (res: ^Expr, ok: bool) {
       fmt.eprintfln("Unknown condition %v", cond)
       return nil, false
     }
-    if c2 != "=" {
-      return nil, false
-    }
+    if c2 != "=" do return nil, false
     expr2 := parse_expr(input) or_return
-    defer if expr2 != nil && !ok {
-      free_expr(expr2)
-    }
+    defer if expr2 != nil && !ok do free_expr(expr2)
     expect(input, ",") or_return
     expr3 := parse_expr(input) or_return
-    defer if expr3 != nil && !ok {
-      free_expr(expr3)
-    }
+    defer if expr3 != nil && !ok do free_expr(expr3)
     expect(input, ",") or_return
     expr4 := parse_expr(input) or_return
-    defer if expr4 != nil && !ok {
-      free_expr(expr4)
-    }
+    defer if expr4 != nil && !ok do free_expr(expr4)
     expect(input, ")") or_return
     res = new(Expr)
     res^ = If{c, expr1, expr2, expr3, expr4}
@@ -248,9 +231,7 @@ free_expr :: proc(e: ^Expr) {
 
 User_Formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
   m := cast(^Expr)arg.data
-  if m == nil {
-    return false
-  }
+  if m == nil do return false
   switch verb {
   case 'v':
     switch v in m {
