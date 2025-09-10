@@ -45,8 +45,6 @@ Fun :: struct {
 }
 
 Cond :: enum {
-  Equal,
-  NotEqual,
   Less,
   GreaterEqual,
 }
@@ -155,12 +153,6 @@ parse_expr :: proc(input: ^Input) -> (res: ^Expr, ok: bool) {
     case ">":
       c = .GreaterEqual
       c2 = pop_input(input, 1) or_return
-    case "=":
-      c = .Equal
-      c2 = pop_input(input, 1) or_return
-    case "!":
-      c = .NotEqual
-      c2 = pop_input(input, 1) or_return
     case:
       fmt.eprintfln("Unknown condition %v", cond)
       return nil, false
@@ -201,7 +193,9 @@ parse_expr :: proc(input: ^Input) -> (res: ^Expr, ok: bool) {
   }
   if res == nil {
     rest := input.data[input.loc:]
-    fmt.eprintfln("Unable to parse `%v` at location %v", len(rest) == 0 ? "empty string" : input.data[input.loc:], input.loc)
+    if len(rest) != 0 || input.loc != 0 {
+      fmt.eprintfln("Unable to parse `%v` at location %v", len(rest) == 0 ? "empty string" : input.data[input.loc:], input.loc)
+    }
     ok = false
   }
   return
@@ -227,6 +221,43 @@ free_expr :: proc(e: ^Expr) {
     free_expr(v.d)
   }
   free(e)
+}
+
+copy_expr :: proc(src: ^Expr, dst: ^Expr) {
+  switch v in src {
+  case f64, string:
+    dst^ = v
+  case Add:
+    e1 := new(Expr)
+    e2 := new(Expr)
+    copy_expr(v.e1, e1)
+    copy_expr(v.e2, e2)
+    dst^ = Add{e1, e2}
+  case Mul:
+    e1 := new(Expr)
+    e2 := new(Expr)
+    copy_expr(v.e1, e1)
+    copy_expr(v.e2, e2)
+    dst^ = Mul{e1, e2}
+  case Pow:
+    e1 := new(Expr)
+    copy_expr(v.e1, e1)
+    dst^ = Pow{v.pow, e1}
+  case Fun:
+    e1 := new(Expr)
+    copy_expr(v.e1, e1)
+    dst^ = Fun{v.typ, e1}
+  case If:
+    a := new(Expr)
+    b := new(Expr)
+    c := new(Expr)
+    d := new(Expr)
+    copy_expr(v.a, a)
+    copy_expr(v.b, b)
+    copy_expr(v.c, c)
+    copy_expr(v.d, d)
+    dst^ = If{v.cond, a, b, c, d}
+  }
 }
 
 User_Formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
@@ -276,10 +307,6 @@ User_Formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
       fmt.fmt_string(fi, "if(", verb)
       User_Formatter(fi, v.a^, verb)
       switch v.cond {
-      case .Equal:
-        fmt.fmt_string(fi, " == ", verb)
-      case .NotEqual:
-        fmt.fmt_string(fi, " != ", verb)
       case .Less:
         fmt.fmt_string(fi, " < ", verb)
       case .GreaterEqual:
@@ -302,7 +329,7 @@ generate_function :: proc(params: []string, depth: int) -> (res: ^Expr, ok: bool
   variants := [7]int{1, 2, 3, 4, 5, 6, 7}
   short_variants := [2]int{1, 2}
   functions := [5]FunType{.Sin, .Abs, .Sqrt, .Log, .Inv}
-  conditions := [4]Cond{.Equal, .NotEqual, .Less, .GreaterEqual}
+  conditions := [2]Cond{.Less, .GreaterEqual}
   powers := [2]int{2, 3}
   opts: ^Options = auto_cast context.user_ptr
   weights := convert_weights(opts.weights)
@@ -384,10 +411,6 @@ compute_function :: proc(fun: ^Expr, params: map[string]f64) -> (res: f64) {
     val2 := compute_function(v.b, params)
     cond: bool
     switch v.cond {
-    case .Equal:
-      cond = val1 == val2
-    case .NotEqual:
-      cond = val1 != val2
     case .Less:
       cond = val1 < val2
     case .GreaterEqual:
@@ -435,6 +458,29 @@ convert_weights :: proc(ws: string) -> (res: [7]f64) {
   return
 }
 
+substitute_funcs :: proc(funcs: ^Funcs, ufuncs: ^Funcs) {
+  if ufuncs.fun_r != nil {
+    free_expr(funcs.fun_r)
+    funcs.fun_r = new(Expr)
+    copy_expr(ufuncs.fun_r, funcs.fun_r)
+  }
+  if ufuncs.fun_g != nil {
+    free_expr(funcs.fun_g)
+    funcs.fun_g = new(Expr)
+    copy_expr(ufuncs.fun_g, funcs.fun_g)
+  }
+  if ufuncs.fun_b != nil {
+    free_expr(funcs.fun_b)
+    funcs.fun_b = new(Expr)
+    copy_expr(ufuncs.fun_b, funcs.fun_b)
+  }
+  if ufuncs.fun_a != nil {
+    free_expr(funcs.fun_a)
+    funcs.fun_a = new(Expr)
+    copy_expr(ufuncs.fun_a, funcs.fun_a)
+  }
+}
+
 main :: proc() {
   when ODIN_DEBUG {
     track: mem.Tracking_Allocator
@@ -468,24 +514,11 @@ main :: proc() {
   u_fun_b := parse_expr(&input_b) or_else nil
   u_fun_a := parse_expr(&input_a) or_else nil
   context.user_ptr = &opts
+  ufuncs := Funcs{u_fun_r, u_fun_g, u_fun_b, u_fun_a}
+  defer free_funcs(ufuncs)
   if opts.attempts == 0 {
     funcs := generate_functions(opts)
-    if u_fun_r != nil {
-      free_expr(funcs.fun_r)
-      funcs.fun_r = u_fun_r
-    }
-    if u_fun_g != nil {
-      free_expr(funcs.fun_g)
-      funcs.fun_g = u_fun_g
-    }
-    if u_fun_b != nil {
-      free_expr(funcs.fun_b)
-      funcs.fun_b = u_fun_b
-    }
-    if u_fun_a != nil {
-      free_expr(funcs.fun_a)
-      funcs.fun_a = u_fun_a
-    }
+    substitute_funcs(&funcs, &ufuncs)
     defer free_funcs(funcs)
     fmt.println(funcs.fun_r^)
     fmt.println()
@@ -498,11 +531,13 @@ main :: proc() {
   } else {
     funcs := generate_functions(opts)
     defer if opts.step != 0 do free_funcs(funcs)
+    substitute_funcs(&funcs, &ufuncs)
     for i in 0 ..< opts.attempts {
       perform(i, funcs, opts)
       if opts.step == 0 {
         free_funcs(funcs)
         funcs = generate_functions(opts)
+        substitute_funcs(&funcs, &ufuncs)
       }
       fmt.printfln("%v/%v", i + 1, opts.attempts)
     }
@@ -518,10 +553,10 @@ Funcs :: struct {
 }
 
 free_funcs :: proc(funcs: Funcs) {
-  free_expr(funcs.fun_r)
-  free_expr(funcs.fun_g)
-  free_expr(funcs.fun_b)
-  free_expr(funcs.fun_a)
+  if funcs.fun_r != nil do free_expr(funcs.fun_r)
+  if funcs.fun_g != nil do free_expr(funcs.fun_g)
+  if funcs.fun_b != nil do free_expr(funcs.fun_b)
+  if funcs.fun_a != nil do free_expr(funcs.fun_a)
 }
 
 generate_functions :: proc(opts: Options) -> Funcs {
