@@ -404,7 +404,7 @@ compute_function :: proc(fun: ^Expr, params: map[string]f64) -> (res: f64) {
 
 Options :: struct {
   filename: string `args:"name=o" usage:"Output filepath"`,
-  attempts: int `args:"name=a" usage:"Number of generated images"`,
+  attempts: int `args:"name=n" usage:"Number of generated images"`,
   constant: f64 `args:"name=c" usage:"Constant size"`,
   size:     f64 `args:"name=s" usage:"Field size"`,
   width:    int `args:"name=width" usage:"Width"`,
@@ -416,6 +416,7 @@ Options :: struct {
   red:      string `args:"name=r" usage:"Red function"`,
   green:    string `args:"name=g" usage:"Green function"`,
   blue:     string `args:"name=b" usage:"Blue function"`,
+  alpha:    string `args:"name=a" usage:"Alpha function"`,
 }
 
 convert_weights :: proc(ws: string) -> (res: [7]f64) {
@@ -456,14 +457,16 @@ main :: proc() {
   defer delete(formatters)
   assert(err == .None)
 
-  opts := Options{"image.png", 0, 10, math.PI, 1024, 1024, false, 10, "1 1 1 1 1 1 1", 0, "", "", ""}
+  opts := Options{"image.png", 0, 10, math.PI, 1024, 1024, false, 10, "1 1 1 1 1 1 1", 0, "", "", "", "1"}
   flags.parse_or_exit(&opts, os.args, .Unix)
   input_r := Input{opts.red, 0}
   input_g := Input{opts.green, 0}
   input_b := Input{opts.blue, 0}
+  input_a := Input{opts.alpha, 0}
   u_fun_r := parse_expr(&input_r) or_else nil
   u_fun_g := parse_expr(&input_g) or_else nil
   u_fun_b := parse_expr(&input_b) or_else nil
+  u_fun_a := parse_expr(&input_a) or_else nil
   context.user_ptr = &opts
   if opts.attempts == 0 {
     funcs := generate_functions(opts)
@@ -479,10 +482,18 @@ main :: proc() {
       free_expr(funcs.fun_b)
       funcs.fun_b = u_fun_b
     }
+    if u_fun_a != nil {
+      free_expr(funcs.fun_a)
+      funcs.fun_a = u_fun_a
+    }
     defer free_funcs(funcs)
     fmt.println(funcs.fun_r^)
+    fmt.println()
     fmt.println(funcs.fun_g^)
+    fmt.println()
     fmt.println(funcs.fun_b^)
+    fmt.println()
+    fmt.println(funcs.fun_a^)
     perform(-1, funcs, opts)
   } else {
     funcs := generate_functions(opts)
@@ -503,18 +514,20 @@ Funcs :: struct {
   fun_r: ^Expr,
   fun_g: ^Expr,
   fun_b: ^Expr,
+  fun_a: ^Expr,
 }
 
 free_funcs :: proc(funcs: Funcs) {
   free_expr(funcs.fun_r)
   free_expr(funcs.fun_g)
   free_expr(funcs.fun_b)
+  free_expr(funcs.fun_a)
 }
 
 generate_functions :: proc(opts: Options) -> Funcs {
   gen_params := [3]string{"x", "y", "t"}
   ok: bool
-  fun_r, fun_g, fun_b: ^Expr
+  fun_r, fun_g, fun_b, fun_a: ^Expr
   for {
     if fun_r != nil do free_expr(fun_r)
     fun_r, ok = generate_function(gen_params[:], opts.depth)
@@ -530,20 +543,26 @@ generate_functions :: proc(opts: Options) -> Funcs {
     fun_b, ok = generate_function(gen_params[:], opts.depth)
     if ok do break
   }
-  return {fun_r, fun_g, fun_b}
+  for {
+    if fun_a != nil do free_expr(fun_a)
+    fun_a, ok = generate_function(gen_params[:], opts.depth)
+    if ok do break
+  }
+  return {fun_r, fun_g, fun_b, fun_a}
 }
 
 perform :: proc(n: int, funcs: Funcs, opts: Options) {
   width := opts.width
   height := opts.height
 
-  buf := make([dynamic]u8, width * height * 3)
+  buf := make([dynamic]u8, width * height * 4)
   defer delete(buf)
 
   wg: sync.Wait_Group
   wd_r := WorkerData{&wg, buf[:], width, height, funcs.fun_r, f64(n) * opts.step}
   wd_g := WorkerData{&wg, buf[:], width, height, opts.single ? funcs.fun_r : funcs.fun_g, f64(n) * opts.step}
   wd_b := WorkerData{&wg, buf[:], width, height, opts.single ? funcs.fun_r : funcs.fun_b, f64(n) * opts.step}
+  wd_a := WorkerData{&wg, buf[:], width, height, opts.single ? funcs.fun_r : funcs.fun_a, f64(n) * opts.step}
 
   t_r := thread.create(worker)
   t_r.init_context = context
@@ -560,22 +579,29 @@ perform :: proc(n: int, funcs: Funcs, opts: Options) {
   t_b.user_index = 2
   t_b.data = &wd_b
 
+  t_a := thread.create(worker)
+  t_a.init_context = context
+  t_a.user_index = 3
+  t_a.data = &wd_a
+
   thread.start(t_r)
   thread.start(t_g)
   thread.start(t_b)
+  thread.start(t_a)
 
-  sync.wait_group_add(&wg, 3)
+  sync.wait_group_add(&wg, 4)
 
   thread.destroy(t_r)
   thread.destroy(t_g)
   thread.destroy(t_b)
+  thread.destroy(t_a)
 
   fname := opts.filename
   if n >= 0 {
     dir, name := filepath.split(fname)
     fname = filepath.join({dir, fmt.tprintf("%v_%03d%v", filepath.stem(fname), n, filepath.ext(fname))}, context.temp_allocator)
   }
-  image.write_png(fmt.ctprint(fname), auto_cast width, auto_cast height, 3, raw_data(buf), auto_cast width * 3)
+  image.write_png(fmt.ctprint(fname), auto_cast width, auto_cast height, 4, raw_data(buf), auto_cast width * 4)
   free_all(context.temp_allocator)
 }
 
@@ -601,7 +627,12 @@ worker :: proc(t: ^thread.Thread) {
     min_c = min(min_c, buf_c[i])
     max_c = max(max_c, buf_c[i])
   }
-  for i in 0 ..< width * height do wd.buf[3 * i + t.user_index] = u8((buf_c[i] - min_c) / (max_c - min_c) * 255)
+  for i in 0 ..< width * height {
+    wd.buf[4 * i + t.user_index] = u8((buf_c[i] - min_c) / (max_c - min_c) * 255)
+    if t.user_index == 3 {
+      wd.buf[4 * i + t.user_index] = 255 - wd.buf[4 * i + t.user_index]
+    }
+  }
 }
 
 WorkerData :: struct {
