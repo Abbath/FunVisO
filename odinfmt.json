@@ -3,5 +3,6 @@
 	"character_width": 256,
 	"tabs": false,
 	"tabs_width": 2,
-	"spaces": 2
+	"spaces": 2,
+	"inline_single_stmt_case": true
 }

@@ -70,13 +70,9 @@ Input :: struct {
   loc:  int,
 }
 
-starts_with :: proc(input: Input, pattern: string) -> bool {
-  return strings.has_prefix(input.data[input.loc:], pattern)
-}
+starts_with :: proc(input: Input, pattern: string) -> bool {return strings.has_prefix(input.data[input.loc:], pattern)}
 
-skip_whitespace :: proc(input: ^Input) {
-  for strings.has_prefix(input.data[input.loc:], " ") do input.loc += 1
-}
+skip_whitespace :: proc(input: ^Input) {for strings.has_prefix(input.data[input.loc:], " ") do input.loc += 1}
 
 pop_input :: proc(input: ^Input, n: int) -> (res: string, ok: bool) {
   skip_whitespace(input)
@@ -146,8 +142,7 @@ parse_expr :: proc(input: ^Input) -> (res: ^Expr, ok: bool) {
     c: Cond
     c2 := "="
     switch cond {
-    case "<":
-      c = .Less
+    case "<": c = .Less
     case ">":
       c = .GreaterEqual
       c2 = pop_input(input, 1) or_return
@@ -179,10 +174,8 @@ parse_expr :: proc(input: ^Input) -> (res: ^Expr, ok: bool) {
     lhs := res
     res = new(Expr)
     switch op {
-    case "+":
-      res^ = Add{lhs, rhs}
-    case "*":
-      res^ = Mul{lhs, rhs}
+    case "+": res^ = Add{lhs, rhs}
+    case "*": res^ = Mul{lhs, rhs}
     case "^":
       pow := int(rhs^.(f64))
       free(rhs)
@@ -191,9 +184,7 @@ parse_expr :: proc(input: ^Input) -> (res: ^Expr, ok: bool) {
   }
   if res == nil {
     rest := input.data[input.loc:]
-    if len(rest) != 0 || input.loc != 0 {
-      fmt.eprintfln("Unable to parse `%v` at location %v", len(rest) == 0 ? "empty string" : input.data[input.loc:], input.loc)
-    }
+    if len(rest) != 0 || input.loc != 0 do fmt.eprintfln("Unable to parse `%v` at location %v", len(rest) == 0 ? "empty string" : input.data[input.loc:], input.loc)
     ok = false
   }
   return
@@ -208,10 +199,8 @@ free_expr :: proc(e: ^Expr) {
   case Mul:
     free_expr(v.e1)
     free_expr(v.e2)
-  case Pow:
-    free_expr(v.e1)
-  case Fun:
-    free_expr(v.e1)
+  case Pow: free_expr(v.e1)
+  case Fun: free_expr(v.e1)
   case If:
     free_expr(v.a)
     free_expr(v.b)
@@ -223,8 +212,7 @@ free_expr :: proc(e: ^Expr) {
 
 copy_expr :: proc(src: ^Expr, dst: ^Expr) {
   switch v in src {
-  case f64, string:
-    dst^ = v
+  case f64, string: dst^ = v
   case Add:
     e1 := new(Expr)
     e2 := new(Expr)
@@ -262,63 +250,52 @@ User_Formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
   m := cast(^Expr)arg.data
   if m == nil do return false
   switch verb {
-  case 'v':
-    switch v in m {
-    case f64:
-      fmt.fmt_float(fi, v, 64, verb)
-    case string:
-      fmt.fmt_string(fi, v, verb)
-    case Add:
-      fmt.fmt_string(fi, "(", verb)
-      User_Formatter(fi, v.e1^, verb)
-      fmt.fmt_string(fi, " + ", verb)
-      User_Formatter(fi, v.e2^, verb)
-      fmt.fmt_string(fi, ")", verb)
-    case Mul:
-      fmt.fmt_string(fi, "(", verb)
-      User_Formatter(fi, v.e1^, verb)
-      fmt.fmt_string(fi, " * ", verb)
-      User_Formatter(fi, v.e2^, verb)
-      fmt.fmt_string(fi, ")", verb)
-    case Pow:
-      fmt.fmt_string(fi, "(", verb)
-      User_Formatter(fi, v.e1^, verb)
-      fmt.fmt_string(fi, " ^ ", verb)
-      fmt.fmt_int(fi, auto_cast v.pow, false, 64, verb)
-      fmt.fmt_string(fi, ")", verb)
-    case Fun:
-      switch v.typ {
-      case .Sin:
-        fmt.fmt_string(fi, "sin(", verb)
-      case .Abs:
-        fmt.fmt_string(fi, "abs(", verb)
-      case .Sqrt:
-        fmt.fmt_string(fi, "sqrt(", verb)
-      case .Log:
-        fmt.fmt_string(fi, "log(", verb)
-      case .Inv:
-        fmt.fmt_string(fi, "inv(", verb)
+  case 'v': switch v in m {
+      case f64: fmt.fmt_float(fi, v, 64, verb)
+      case string: fmt.fmt_string(fi, v, verb)
+      case Add:
+        fmt.fmt_string(fi, "(", verb)
+        User_Formatter(fi, v.e1^, verb)
+        fmt.fmt_string(fi, " + ", verb)
+        User_Formatter(fi, v.e2^, verb)
+        fmt.fmt_string(fi, ")", verb)
+      case Mul:
+        fmt.fmt_string(fi, "(", verb)
+        User_Formatter(fi, v.e1^, verb)
+        fmt.fmt_string(fi, " * ", verb)
+        User_Formatter(fi, v.e2^, verb)
+        fmt.fmt_string(fi, ")", verb)
+      case Pow:
+        fmt.fmt_string(fi, "(", verb)
+        User_Formatter(fi, v.e1^, verb)
+        fmt.fmt_string(fi, " ^ ", verb)
+        fmt.fmt_int(fi, auto_cast v.pow, false, 64, verb)
+        fmt.fmt_string(fi, ")", verb)
+      case Fun:
+        switch v.typ {
+        case .Sin: fmt.fmt_string(fi, "sin(", verb)
+        case .Abs: fmt.fmt_string(fi, "abs(", verb)
+        case .Sqrt: fmt.fmt_string(fi, "sqrt(", verb)
+        case .Log: fmt.fmt_string(fi, "log(", verb)
+        case .Inv: fmt.fmt_string(fi, "inv(", verb)
+        }
+        User_Formatter(fi, v.e1^, verb)
+        fmt.fmt_string(fi, ")", verb)
+      case If:
+        fmt.fmt_string(fi, "if(", verb)
+        User_Formatter(fi, v.a^, verb)
+        switch v.cond {
+        case .Less: fmt.fmt_string(fi, " < ", verb)
+        case .GreaterEqual: fmt.fmt_string(fi, " >= ", verb)
+        }
+        User_Formatter(fi, v.b^, verb)
+        fmt.fmt_string(fi, ", ", verb)
+        User_Formatter(fi, v.c^, verb)
+        fmt.fmt_string(fi, ", ", verb)
+        User_Formatter(fi, v.d^, verb)
+        fmt.fmt_string(fi, ")", verb)
       }
-      User_Formatter(fi, v.e1^, verb)
-      fmt.fmt_string(fi, ")", verb)
-    case If:
-      fmt.fmt_string(fi, "if(", verb)
-      User_Formatter(fi, v.a^, verb)
-      switch v.cond {
-      case .Less:
-        fmt.fmt_string(fi, " < ", verb)
-      case .GreaterEqual:
-        fmt.fmt_string(fi, " >= ", verb)
-      }
-      User_Formatter(fi, v.b^, verb)
-      fmt.fmt_string(fi, ", ", verb)
-      User_Formatter(fi, v.c^, verb)
-      fmt.fmt_string(fi, ", ", verb)
-      User_Formatter(fi, v.d^, verb)
-      fmt.fmt_string(fi, ")", verb)
-    }
-  case:
-    return false
+  case: return false
   }
   return true
 }
@@ -380,45 +357,29 @@ generate_function :: proc(params: []string, depth: int) -> (res: ^Expr, ok: bool
 
 compute_function :: proc(fun: ^Expr, params: map[string]f64) -> (res: f64) {
   switch v in fun^ {
-  case f64:
-    res = v
-  case string:
-    res = params[v]
-  case Add:
-    res = compute_function(v.e1, params) + compute_function(v.e2, params)
-  case Mul:
-    res = compute_function(v.e1, params) * compute_function(v.e2, params)
-  case Pow:
-    res = math.pow(compute_function(v.e1, params), f64(v.pow))
+  case f64: res = v
+  case string: res = params[v]
+  case Add: res = compute_function(v.e1, params) + compute_function(v.e2, params)
+  case Mul: res = compute_function(v.e1, params) * compute_function(v.e2, params)
+  case Pow: res = math.pow(compute_function(v.e1, params), f64(v.pow))
   case Fun:
     val := compute_function(v.e1, params)
     switch v.typ {
-    case .Sin:
-      res = math.sin(val)
-    case .Abs:
-      res = math.abs(val)
-    case .Sqrt:
-      res = math.abs(val)
-    case .Log:
-      res = math.abs(val)
-    case .Inv:
-      res = val == 0 ? val : (1 / val)
+    case .Sin: res = math.sin(val)
+    case .Abs: res = math.abs(val)
+    case .Sqrt: res = math.abs(val)
+    case .Log: res = math.abs(val)
+    case .Inv: res = val == 0 ? val : (1 / val)
     }
   case If:
     val1 := compute_function(v.a, params)
     val2 := compute_function(v.b, params)
     cond: bool
     switch v.cond {
-    case .Less:
-      cond = val1 < val2
-    case .GreaterEqual:
-      cond = val1 >= val2
+    case .Less: cond = val1 < val2
+    case .GreaterEqual: cond = val1 >= val2
     }
-    if cond {
-      res = compute_function(v.c, params)
-    } else {
-      res = compute_function(v.d, params)
-    }
+    res = compute_function(cond ? v.c : v.d, params)
   }
   return
 }
@@ -481,9 +442,7 @@ substitute_funcs :: proc(funcs: ^Funcs, ufuncs: ^Funcs) {
 }
 
 main :: proc() {
-  when ODIN_DEBUG {
-    debug_stuff()
-  }
+  when ODIN_DEBUG {debug_stuff()}
 
   formatters := make(map[typeid]fmt.User_Formatter)
   fmt.set_user_formatters(&formatters)
@@ -652,9 +611,7 @@ worker :: proc(t: ^thread.Thread) {
   }
   for i in 0 ..< width * height {
     wd.buf[4 * i + t.user_index] = u8((buf_c[i] - min_c) / (max_c - min_c) * 255)
-    if t.user_index == 3 {
-      wd.buf[4 * i + t.user_index] = 255 - wd.buf[4 * i + t.user_index]
-    }
+    if t.user_index == 3 do wd.buf[4 * i + t.user_index] = 255 - wd.buf[4 * i + t.user_index]
   }
 }
 
