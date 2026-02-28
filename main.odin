@@ -4,10 +4,8 @@ import "core:flags"
 import "core:fmt"
 import "core:math"
 import "core:math/rand"
-import "core:mem"
 import "core:os"
 import "core:path/filepath"
-import "core:slice"
 import "core:strconv"
 import "core:strings"
 import "core:sync"
@@ -106,8 +104,8 @@ pop_float :: proc(input: ^Input) -> (res: f64, ok: bool) {
   skip_whitespace(input)
   r := utf8.rune_at_pos(input.data[input.loc:], 0)
   if unicode.is_digit(r) || r == '-' {
-    val, nr, ok := strconv.parse_f64_prefix(input.data[input.loc:])
-    if ok {
+    val, nr, ok1 := strconv.parse_f64_prefix(input.data[input.loc:])
+    if ok1 {
       input.loc += nr
       return val, true
     }
@@ -286,7 +284,7 @@ User_Formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
       fmt.fmt_string(fi, "(", verb)
       User_Formatter(fi, v.e1^, verb)
       fmt.fmt_string(fi, " ^ ", verb)
-      fmt.fmt_int(fi, transmute(u64)v.pow, false, 64, verb)
+      fmt.fmt_int(fi, auto_cast v.pow, false, 64, verb)
       fmt.fmt_string(fi, ")", verb)
     case Fun:
       switch v.typ {
@@ -326,7 +324,7 @@ User_Formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
 }
 
 generate_function :: proc(params: []string, depth: int) -> (res: ^Expr, ok: bool) {
-  variants := [7]int{1, 2, 3, 4, 5, 6, 7}
+  // variants := [7]int{1, 2, 3, 4, 5, 6, 7}
   short_variants := [2]int{1, 2}
   functions := [5]FunType{.Sin, .Abs, .Sqrt, .Log, .Inv}
   conditions := [2]Cond{.Less, .GreaterEqual}
@@ -451,7 +449,8 @@ convert_weights :: proc(ws: string) -> (res: [7]f64) {
   }
   sums: [7]f64
   for i in 0 ..< 7 {
-    res[i] = f64(strconv.atoi(parts[i]))
+    val, _ := strconv.parse_int(parts[i])
+    res[i] = auto_cast val
     for j in i ..< 7 do sums[j] += res[i]
   }
   for i in 0 ..< 7 do res[i] = sums[i] / sums[6]
@@ -483,18 +482,7 @@ substitute_funcs :: proc(funcs: ^Funcs, ufuncs: ^Funcs) {
 
 main :: proc() {
   when ODIN_DEBUG {
-    track: mem.Tracking_Allocator
-    mem.tracking_allocator_init(&track, context.allocator)
-    context.allocator = mem.tracking_allocator(&track)
-    defer {
-      if len(track.allocation_map) > 0 {
-        fmt.eprintf("=== %v allocations not freed: ===\n", len(track.allocation_map))
-        for _, entry in track.allocation_map {
-          fmt.eprintf("- %v bytes @ %v\n", entry.size, entry.location)
-        }
-      }
-      mem.tracking_allocator_destroy(&track)
-    }
+    debug_stuff()
   }
 
   formatters := make(map[typeid]fmt.User_Formatter)
@@ -633,7 +621,7 @@ perform :: proc(n: int, funcs: Funcs, opts: Options) {
 
   fname := opts.filename
   if n >= 0 {
-    dir, name := filepath.split(fname)
+    dir, _ := filepath.split(fname)
     fname = filepath.join({dir, fmt.tprintf("%v_%03d%v", filepath.stem(fname), n, filepath.ext(fname))}, context.temp_allocator)
   }
   image.write_png(fmt.ctprint(fname), auto_cast width, auto_cast height, 4, raw_data(buf), auto_cast width * 4)
@@ -678,3 +666,4 @@ WorkerData :: struct {
   fun:       ^Expr,
   t:         f64,
 }
+
