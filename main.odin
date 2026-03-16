@@ -1,5 +1,6 @@
 package main
 
+import "base:runtime"
 import "core:flags"
 import "core:fmt"
 import "core:math"
@@ -122,8 +123,7 @@ parse_expr :: proc(input: ^Input) -> (res: ^Expr, ok: bool) {
     res = parse_expr(input) or_return
     expect(input, ")") or_return
   }
-  fun_names := [5]string{"sin(", "abs(", "sqrt(", "log(", "inv("}
-  for fun_name, idx in fun_names {
+  for fun_name, idx in ([5]string{"sin(", "abs(", "sqrt(", "log(", "inv("}) {
     if starts_with(input^, fun_name) {
       pop_input(input, len(fun_name)) or_return
       res = parse_expr(input) or_return
@@ -405,8 +405,7 @@ convert_weights :: proc(ws: string) -> (res: [7]f64) {
   parts := strings.split(ws, " ")
   defer delete(parts)
   if len(parts) != 7 {
-    fmt.eprintln("There should be 7 weights")
-    os.exit(1)
+    panic("There should be 7 weights")
   }
   sums: [7]f64
   for i in 0 ..< 7 {
@@ -580,8 +579,10 @@ perform :: proc(n: int, funcs: Funcs, opts: Options) {
 
   fname := opts.filename
   if n >= 0 {
+    err: runtime.Allocator_Error
     dir, _ := filepath.split(fname)
-    fname = filepath.join({dir, fmt.tprintf("%v_%03d%v", filepath.stem(fname), n, filepath.ext(fname))}, context.temp_allocator)
+    fname, err = filepath.join({dir, fmt.tprintf("%v_%03d%v", filepath.stem(fname), n, filepath.ext(fname))}, context.temp_allocator)
+    if err != nil do panic("Can't join lines!")
   }
   image.write_png(fmt.ctprint(fname), auto_cast width, auto_cast height, 4, raw_data(buf), auto_cast width * 4)
   free_all(context.temp_allocator)
