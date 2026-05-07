@@ -441,7 +441,10 @@ substitute_funcs :: proc(funcs: ^Funcs, ufuncs: ^Funcs) {
 }
 
 main :: proc() {
-  when ODIN_DEBUG {debug_stuff()}
+  when ODIN_DEBUG {
+    context.allocator = debug_stuff_init()
+    defer debug_stuff_defer()
+  }
 
   formatters := make(map[typeid]fmt.User_Formatter)
   fmt.set_user_formatters(&formatters)
